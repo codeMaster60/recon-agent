@@ -140,13 +140,15 @@ def test_all_clear_summary_and_html(month):
     report = load_report(out / "settlement_report.csv").df
     clean = report[report["type"] == "payment"].head(0)
     result = reconcile(clean, load_bank(out / "bank_format_a.csv").df.iloc[0:0])
-    assert template_summary(result).startswith("All clear.")
+    assert template_summary(result).startswith("Nothing looks wrong.")
     page = to_html(result, "All clear.", ["bank: no usable balance column"])
-    assert "No issues found." in page and "no usable balance column" in page
+    assert "Nothing to fix." in page and "no usable balance column" in page
+    assert "no bank statement uploaded" in page
 
 
 def test_html_escapes_text_and_shows_every_issue(month):
     result = _result(month)
     page = to_html(result, "<script>x</script>", title="Sept & Oct")
-    assert "&lt;script&gt;" in page and "Sept &amp; Oct" in page
-    assert page.count("<tr class=") == len(result.exceptions)
+    assert "&lt;script&gt;" in page and "Sept &amp; Oct." in page
+    assert all(e.key in page for e in result.exceptions)
+    assert page.count('class="rc-group') == 3

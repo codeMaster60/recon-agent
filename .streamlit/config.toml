@@ -1,0 +1,48 @@
+[server]
+enableStaticServing = true   # serves ./static, so the fonts ship with the app
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[theme]
+base = "light"
+primaryColor = "#C0392B"
+backgroundColor = "#F5F2EE"
+secondaryBackgroundColor = "#ECE7E0"
+textColor = "#1A1A18"
+linkColor = "#C0392B"
+borderColor = "#DCD6CC"
+showWidgetBorder = true
+baseRadius = "6px"
+font = "DM Sans, system-ui, sans-serif"
+headingFont = "Instrument Serif, Georgia, serif"
+codeFont = "DM Mono, ui-monospace, monospace"
+
+[[theme.fontFaces]]
+family = "DM Sans"
+url = "app/static/fonts/DMSans-Variable.woff2"
+weight = "300 700"
+
+[[theme.fontFaces]]
+family = "Instrument Serif"
+url = "app/static/fonts/InstrumentSerif-Regular.woff2"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Instrument Serif"
+url = "app/static/fonts/InstrumentSerif-Italic.woff2"
+style = "italic"
+
+[[theme.fontFaces]]
+family = "DM Mono"
+url = "app/static/fonts/DMMono-Regular.woff2"
+weight = "400"
+
+[[theme.fontFaces]]
+family = "DM Mono"
+url = "app/static/fonts/DMMono-Medium.woff2"
+weight = "500"

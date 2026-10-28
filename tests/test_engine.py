@@ -103,7 +103,7 @@ def test_excess_credit_is_low_severity():
 
 def test_missing_payout_near_statement_end_is_medium_with_caveat():
     (e,) = reconcile(make_report([payout("s1", 1000.0, 29)]), bank()).exceptions
-    assert e.severity == "medium" and "next one" in e.detail
+    assert e.severity == "medium" and "next month" in e.detail
 
 
 def test_unknown_credit_without_utr_uses_row_number():

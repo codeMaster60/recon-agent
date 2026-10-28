@@ -11,6 +11,13 @@ import generate
 import run_eval
 from conftest import ROOT
 
+SAMPLE_TRUTH = json.loads((ROOT / "data" / "samples" / "ground_truth.json").read_text())
+
+
+def generate_truth():
+    return {(t["type"], t["key"]) for t in SAMPLE_TRUTH}
+
+
 SAMPLES = ROOT / "data" / "samples"
 CLEAN_REPORT = (
     b"entity_id,type,amount,fee,tax,settled,settlement_id,settlement_utr,settled_at,created_at,method\n"
@@ -49,7 +56,8 @@ def test_cli_full_run_with_rate_card(monkeypatch, tmp_path, capsys):
     )
     summary = json.loads((tmp_path / "out" / "summary.json").read_text())
     assert summary["stats"]["exceptions"] == 22 and summary["llm_summary"] is False
-    assert (tmp_path / "out" / "report.html").read_text().count("<tr class=") == 22
+    report_html = (tmp_path / "out" / "report.html").read_text()
+    assert all(key in report_html for _, key in generate_truth()) and "Act now · 14" in report_html
     assert len((tmp_path / "out" / "exceptions.csv").read_text().splitlines()) == 23
     assert "wrote" in capsys.readouterr().out
 
@@ -103,33 +111,58 @@ def app():
     return AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
 
 
+def page(at) -> str:
+    """Everything the app wrote as HTML, joined, so tests can check what a visitor reads."""
+    return "\n".join(m.value for m in at.markdown)
+
+
+def load_sample(at, bank=None):
+    at.button[0].click().run()
+    if bank:
+        at.radio[0].set_value(bank).run()
+    return at
+
+
+HINDI = "Bank D · Hindi column names (needs the AI step)"
+
+
 def test_app_landing_page():
     at = app().run()
-    assert not at.exception and "Start with the settlement report" in at.info[0].value
-    assert "rules only" in at.sidebar.markdown[0].value
+    html = page(at)
+    assert not at.exception
+    assert "Did every payout land?" in html and "Results show up here" in html
+    assert "AI step off in this demo" in html and "How it works" in html
+    assert at.button[0].label == "No files handy? Load a sample month"
 
 
-def test_app_sample_data_flow_and_feedback(capsys):
-    at = app().run()
-    at.button[0].click().run()
-    assert not at.exception and not at.error
-    assert [m.label for m in at.metric] == [
-        "Needs action now",
-        "Payouts matched",
-        "Expected payouts",
-        "Received in bank",
-    ]
-    assert at.dataframe[0].value.shape == (22, 7) and len(at.download_button) == 2
-    feedback = next(r for r in at.radio if r.label.startswith("Found something"))
+def test_app_sample_month_shows_every_issue_and_takes_feedback(capsys, month):
+    at = load_sample(app().run())
+    html = page(at)
+    assert not at.exception
+    assert "Needs a look now" in html and "Act now · 14" in html and "Worth a check · 5" in html
+    truth = {k for _, k in generate_truth()}
+    assert all(key in html for key in truth)
+    assert "2 payouts that never arrived" in html
+    assert len(at.download_button) == 2 and "How your files were read" in html
+    feedback = next(r for r in at.radio if r.label.startswith("Did this catch"))
     feedback.set_value("Yes").run()
-    assert at.success[0].value == "Thanks - noted." and "FEEDBACK" in capsys.readouterr().out
+    assert "Thanks, noted." in page(at) and "FEEDBACK" in capsys.readouterr().out
 
 
-def test_app_hindi_sample_without_ai_shows_error():
+def test_app_every_sample_bank_format_reads(month):
     at = app().run()
     at.button[0].click().run()
-    at.radio[0].set_value("d (Hindi headers - needs AI)").run()
-    assert "Could not map" in at.error[0].value
+    for label in ("Bank B · Excel download", "Bank C · one amount column marked Cr or Dr"):
+        at.radio[0].set_value(label).run()
+        assert not at.exception and "Act now · 14" in page(at)
+
+
+def test_app_hindi_sample_without_ai_explains_instead_of_erroring():
+    at = load_sample(app().run(), HINDI)
+    html = page(at)
+    assert not at.exception and not at.error
+    assert "read the bank statement." in html and "switched off in this public demo" in html
+    assert "Could not map" in at.code[0].value  # raw detail kept behind "Technical details"
 
 
 def test_app_reads_key_from_secrets_and_uses_ai(llm_server, monkeypatch):
@@ -137,22 +170,36 @@ def test_app_reads_key_from_secrets_and_uses_ai(llm_server, monkeypatch):
     at = app()
     at.secrets["GROQ_API_KEY"] = "from-secrets"
     at.run()
-    at.button[0].click().run()
-    at.radio[0].set_value("d (Hindi headers - needs AI)").run()
-    assert not at.error and any("AI-written" in h.value for h in at.subheader)
+    html = page(load_sample(at, HINDI))
+    assert "Summary written by the AI step" in html and "The AI step worked out the columns" in html
     assert llm_server.requests[-1]["headers"]["Authorization"] == "Bearer from-secrets"
 
 
 def test_app_env_key_wins_over_secrets(llm_server, monkeypatch):
+    import os
+
     monkeypatch.setenv("GROQ_API_KEY", "from-env")
     monkeypatch.delenv("RECON_LLM_API_KEY")
     at = app()
     at.secrets["GROQ_API_KEY"] = "from-secrets"
     at.run()
-    assert "fake-model" in at.sidebar.markdown[0].value
-    import os
+    assert "AI step on · fake-model" in page(at) and os.environ["GROQ_API_KEY"] == "from-env"
 
-    assert os.environ["GROQ_API_KEY"] == "from-env"
+
+def test_app_ai_cannot_read_file_either(llm_server):
+    at = app().run()
+    at.file_uploader[0].set_value(("report.csv", CLEAN_REPORT, "text/csv"))
+    at.file_uploader[1].set_value(("bank.csv", b"Foo,Bar,Baz\nx,y,12\n", "text/csv"))
+    at.run()
+    assert "couldn't make sense of it either" in page(at)
+
+
+def test_app_empty_export_and_wrong_file_messages():
+    at = app().run()
+    at.file_uploader[0].set_value(("report.csv", b"entity_id,type,amount,settlement_id\n", "text/csv")).run()
+    assert "no rows under them" in page(at)
+    at.file_uploader[0].set_value(("notes.csv", b"just a note\n", "text/csv")).run()
+    assert "couldn't find a row of column names" in page(at)
 
 
 def test_app_uploaded_files_override_sample_and_handle_no_issues():
@@ -161,15 +208,19 @@ def test_app_uploaded_files_override_sample_and_handle_no_issues():
     at.file_uploader[0].set_value(("report.csv", CLEAN_REPORT, "text/csv"))
     at.file_uploader[1].set_value(("bank.csv", NO_BALANCE_BANK, "text/csv"))
     at.run()
-    assert not at.exception and not at.error
-    assert at.subheader[1].value == "Issues (0)" and not at.dataframe
-    assert any("could not be cross-checked" in c.value for c in at.caption)
+    html = page(at)
+    assert not at.exception
+    assert "Nothing to fix." in html and "The one payout in this statement reached your bank" in html
+    assert "could not be cross-checked" in html
+    assert at.download_button[1].proto.disabled  # nothing to put in the CSV
 
 
 def test_app_report_only_upload():
     at = app().run()
     at.file_uploader[0].set_value(("report.csv", CLEAN_REPORT, "text/csv")).run()
-    assert not at.exception and at.metric[1].value == "0 / 0"
+    html = page(at)
+    assert not at.exception and "Add the bank statement for the same dates" in html
+    assert '<div class="rc-v">–</div>' in html  # payouts matched: nothing to match yet
 
 
 # ---------------------------------------------------------------- generator

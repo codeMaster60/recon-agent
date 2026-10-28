@@ -5,7 +5,7 @@ description = "AI-assisted reconciliation of Razorpay settlements, bank statemen
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Allumolu Sai Jayanth" }]
-dependencies = ["pandas>=2.1", "openpyxl>=3.1", "streamlit>=1.40"]
+dependencies = ["pandas>=2.1", "openpyxl>=3.1", "streamlit>=1.65"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0", "pytest-cov>=5.0"]

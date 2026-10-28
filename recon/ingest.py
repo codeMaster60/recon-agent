@@ -29,7 +29,12 @@ RULES_FAST_PATH = 0.95  # rules mapping this good -> don't spend an LLM call
 
 
 class MappingError(ValueError):
-    pass
+    """A file could not be read. `reason` is 'no_header', 'empty' or 'columns'; `headers` is what was found."""
+
+    def __init__(self, message: str, reason: str = "columns", headers: list[str] | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.headers = headers or []
 
 
 @dataclass
@@ -137,7 +142,7 @@ def detect_header_row(rows: list[list[str]], schema: Schema) -> int:
             nxt = rows[i + 1] if i + 1 < len(rows) else []
             if any(parse_amount(c) is not None for c in nxt if c):
                 return i
-    raise MappingError("Could not find a header row in the first 40 rows.")
+    raise MappingError("Could not find a header row in the first 40 rows.", reason="no_header")
 
 
 def rules_mapping(headers: list[str], schema: Schema) -> dict[str, str]:
@@ -376,7 +381,9 @@ def load(
     body = [r + [""] * (len(headers) - len(r)) for r in rows[header_row + 1 :]]
     if not any(any(cell for cell in r) for r in body):
         raise MappingError(
-            f"The {schema.name.replace('_', ' ')} has column headers but no rows. Check the date range you exported."
+            f"The {schema.name.replace('_', ' ')} has column headers but no rows. Check the date range you exported.",
+            reason="empty",
+            headers=headers,
         )
     scorer = _SCORERS[schema.name]
 
@@ -403,7 +410,9 @@ def load(
     if best.score < ACCEPT_SCORE:
         hint = "" if client else " Set GROQ_API_KEY (or RECON_LLM_API_KEY) so the LLM can map unfamiliar layouts."
         detail = "; ".join(f"{r.source}: score {r.score} {r.notes}" for r in tried)
-        raise MappingError(f"Could not map columns of {schema.name} (headers: {headers}). {detail}.{hint}")
+        raise MappingError(
+            f"Could not map columns of {schema.name} (headers: {headers}). {detail}.{hint}", headers=headers
+        )
     return Loaded(frames[id(best)], best, header_row, headers, tried)
 
 

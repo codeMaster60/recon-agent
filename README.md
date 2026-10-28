@@ -1,151 +1,147 @@
-# Recon Agent
+<p align="center"><img src="docs/banner.png" alt="Recon Agent. Did every payout land?" width="100%"></p>
 
-**Did every Razorpay payout actually reach my bank, in full, at the fees I agreed to?**
+<p align="center">
+  <a href="https://recon-agent-jayanth.streamlit.app"><b>Try it</b></a> &nbsp;·&nbsp;
+  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
+  <a href="#how-well-it-works">How well it works</a> &nbsp;·&nbsp;
+  <a href="#run-it-yourself">Run it yourself</a>
+</p>
 
-Small merchants answer that question by hand: export the settlement report, download the bank
-statement, open both in Excel, and match rows by eye. Every bank's statement looks different,
-narrations get cut off before the UTR, refunds are netted out of later payouts, and the one
-missing ₹15,000 payout hides among a hundred UPI debits.
+If you sell on Razorpay, the money doesn't arrive when the customer pays. It comes a couple of days
+later, one lump per day, with the fee and GST taken out and refunds netted off. Someone is supposed
+to check that each of those lumps actually reached the bank, and in full.
 
-Recon Agent takes three exports and returns a short list of problems ranked by rupees at risk,
-each with the next step to take.
+In most small businesses that someone does it in Excel, if at all. Every bank exports its statement
+differently. Narrations get cut off before the UTR. A day with a lot of refunds pays nothing and
+quietly shrinks the next payout. A missing ₹15,000 can sit unnoticed between a hundred UPI debits.
 
-![Report](docs/report.png)
+Recon Agent does that check. You give it the Razorpay settlement report, your bank statement for the
+same dates and, if you have it, your own orders export. It gives back a short list of what's wrong,
+biggest money first, with what to do about each one.
 
-## What it catches
+<img src="docs/app.png" alt="The results page: four totals, a one-paragraph summary, then issues grouped by priority" width="100%">
 
-| Problem | Why it matters |
-|---|---|
-| Payout never reached the bank | Money Razorpay says it paid, that you never received |
-| Bank received less (or more) than the settlement | Unexplained deductions |
-| Captured payment never settled | Stuck money past the T+2 cycle |
-| Fee above your rate card, GST not 18% of fee | Overcharging; wrong GST input credit |
-| Customer charged twice for one order | Refund before it becomes a chargeback |
-| Cancelled order still holding the customer's money | Refund owed |
-| Order marked paid with no payment / paid amount ≠ order value | Your books are wrong |
-| Razorpay credit in the bank with no settlement | Wrong account or report period |
+## What it looks for
+
+- Payouts Razorpay says it sent that never reached your bank
+- Payouts that arrived short, or now and then higher than expected
+- Payments captured but still not settled days later
+- Fees above your plan's rate, and GST that isn't 18% of the fee
+- Customers charged twice for the same order
+- Cancelled orders where nobody refunded the money
+- Orders marked paid in your system with no payment behind them, and payments with no order
+- Razorpay money in your bank that isn't in the report at all
 
 ## How it works
 
-```
-settlement report ─┐
-bank statement  ───┼─► find header row ─► map columns ─► check the mapping ─► match ─► rules ─► summary
-orders export   ───┘                      (rules, then LLM)   (code)          (code)   (code)   (LLM, numbers checked)
-```
+**Reading the files.** Bank statements are a mess: different column names, title rows above the
+header, amounts written as "1,23,456.00 Cr", newest first or oldest first. The reader first tries
+matching column names against the common ones. If that doesn't work, say an unfamiliar bank or
+headers in Hindi, it asks an LLM to look at the headers and a few rows and say which column is which.
 
-The LLM does only the two jobs rules are bad at, and code checks both:
+Neither guess is trusted on its own. A mapping is only accepted if the previous balance plus each
+row's amount equals that row's balance, all the way down. If debit and credit got swapped, the same
+check catches it and flips them back.
 
-1. **Reading unfamiliar files.** Header synonyms handle common layouts for free. When they fall
-   short (an unfamiliar bank, Hindi headers), the LLM reads the headers plus sample rows and
-   proposes a mapping. Code then scores every candidate mapping: do dates parse, do amounts
-   parse, and does `previous balance + amount = balance` hold row by row? The running-balance
-   check also catches a swapped debit/credit column and fixes the sign.
-2. **Writing the summary.** The LLM can rewrite the summary in plainer language, but every number
-   in its reply must already exist in the computed facts. One invented digit and the tool falls
-   back to the template. Money is not the place for a hallucinated figure.
+**Matching payouts.** Each settlement is looked for in the bank statement by its UTR. If the bank cut
+the narration short, it falls back to the exact amount within a few days. If that fails too, it pairs
+the closest leftover amounts, so a payout that came in ₹500 short shows up as one short payout instead
+of one missing payout plus one unexplained credit. When refunds are bigger than a day's sales, Razorpay
+pays nothing that day and takes the difference from the next payout. That's handled too.
 
-All matching and checks are deterministic:
+**The rest is plain rules.** Fees against your rate card, GST against the fee, settlement against
+T+2, orders against payments.
 
-- **Pass 1:** UTR found anywhere in the narration or reference column.
-- **Pass 2:** narration cut off before the UTR → exact amount inside the bank's posting-lag window.
-- **Pass 3:** still unpaired on both sides → closest amount within 25%, so a short credit isn't
-  reported as one "missing" payout plus one "unknown" credit.
-- **Refund carry-forward:** when refunds exceed a day's payments there is no payout, and the
-  negative balance shrinks the next one. Handled, so it doesn't raise false "short credit" alarms.
+**Where the AI stops.** The LLM reads file layouts and can rewrite the summary in friendlier words.
+It never calculates anything. If its summary has a number that isn't in the computed results, the
+summary is thrown away and a plain template is used instead.
 
-## Results
+## How well it works
 
-Synthetic months (30 seeds × 3 bank layouts, 22 injected problems each). Full tables in
-[eval/RESULTS.md](eval/RESULTS.md).
+I don't have real merchant data yet, so this is tested on synthetic months. Each month has about 320
+orders with 22 problems planted in it, run against three different bank layouts, over 30 months.
 
-| Data | Precision | Recall | High-severity precision |
-|---|---|---|---|
-| Clean | 100.0% | 100.0% | 100.0% |
-| Hard (posting lag 0–3 days, 30% of narrations truncated) | 95.9% | 99.2% | 99.0% |
+| | Precision | Recall |
+|---|---|---|
+| Clean data | 100% | 100% |
+| Messy data: payouts posted up to 3 days late, 30% of narrations cut off | 95.9% | 99.2% |
 
-The honest caveat: I wrote both the generator and the detector, so clean mode mostly proves the
-rules do what they claim. Hard mode is the more useful number. It started at **89.3% precision /
-97.0% recall**. The lag-aware pass 2, the pass-3 pairing and the refund carry-forward came directly
-from reading its false alarms. Most remaining false alarms are payouts posted after the statement
-closed, and the report labels those "may post in the next statement."
+Take the clean number with a pinch of salt, since I wrote both the generator and the checker. The
+messy number is the honest one. It started at 89.3% and 97.0%, and reading through the false alarms
+is what led to the late-posting window, the closest-amount pairing and the refund carry-forward. Most
+of the false alarms left are payouts that land after the statement closes, and the app already marks
+those as likely to show up in next month's statement.
 
-Real merchant exports are the actual test. See *Next* below.
+The real test is real exports. That's the next step. Full tables are in [eval/RESULTS.md](eval/RESULTS.md).
 
-## Run it
+## Run it yourself
 
 ```bash
+git clone https://github.com/codeMaster60/recon-agent
+cd recon-agent
 pip install -r requirements.txt
-streamlit run app.py                         # web app; click "Try with sample data"
+streamlit run app.py
+```
 
-# or the CLI
+Click "Load a sample month" to try it without your own files. There's a command line version too:
+
+```bash
 python -m recon --report data/samples/settlement_report.csv \
                 --bank data/samples/bank_format_b.xlsx \
                 --orders data/samples/orders.csv --out out/
-
-python data/generate.py --seed 7 --hard      # regenerate a sample month (optionally messy)
-python eval/run_eval.py --hard               # accuracy on messy data
 ```
 
-The LLM is optional. Set `GROQ_API_KEY` (default model `llama-3.3-70b-versatile`), or any
-OpenAI-compatible endpoint via `RECON_LLM_API_KEY`, `RECON_LLM_BASE_URL` and `RECON_LLM_MODEL`.
-Without a key everything runs on rules, and files rules can't read fail with a clear message.
+The AI step is optional. Without a key everything runs on rules, and all you lose is reading unusual
+layouts like the Hindi sample. To turn it on, get a free key from [Groq](https://console.groq.com) and
+set `GROQ_API_KEY`. Any OpenAI-compatible API works through `RECON_LLM_API_KEY`, `RECON_LLM_BASE_URL`
+and `RECON_LLM_MODEL`.
 
-**Deploy:** push to GitHub → [share.streamlit.io](https://share.streamlit.io) → New app → `app.py`;
-add `GROQ_API_KEY` under Secrets.
+The default fee rates (2% for everything) are placeholders. Put in your real plan in the app, or pass
+`--rate-card rates.json` on the command line.
 
-**Your fee rates:** the default rate card (2% per method) is a placeholder. Set your real plan in
-the app sidebar or pass `--rate-card rates.json`.
-
-## Testing
+## Tests
 
 ```bash
 pip install -r requirements-dev.txt
-pytest --cov                                 # 111 tests; fails if line or branch coverage drops below 100%
-ruff check . && ruff format --check .
+pytest --cov
 ```
 
-- **100% line and branch coverage** across the engine, file reading, LLM client, report, CLI, the
-  Streamlit app (driven with Streamlit's `AppTest`, including file uploads), the generator and the
-  eval script.
-- **The real HTTP client is tested against a local fake LLM server** that speaks the
-  OpenAI-compatible protocol: auth header, JSON mode, HTTP errors, non-JSON replies, unreachable
-  host. No API key or internet needed.
-- **Planted-bug check:** 18 realistic bugs were injected one at a time (wrong GST rate, refunds
-  ignored, dates read month-first, hallucinated numbers allowed, API key not sent...). The suite
-  catches all 18 (`python tests/mutation_check.py`). Writing it found two gaps, now covered by tests.
-- **CI runs on Python 3.10, 3.12 and 3.13**, which covers pandas 2.x and 3.x. Testing on both
-  found a real bug: report columns that were entirely blank became non-numeric on pandas 2.x and
-  crashed the app.
+122 tests, and the run fails if line or branch coverage drops below 100%. That includes the web app
+itself, driven through Streamlit's test harness with real file uploads, and the HTTP client for the
+LLM, which is tested against a small fake server so no key is needed.
 
-## Layout
+Coverage only proves every line ran, so there's a second check. `python tests/mutation_check.py`
+plants 20 realistic bugs one at a time, things like the wrong GST rate, dates read month-first,
+refunds ignored in the double-charge check, or the AI allowed to invent numbers, and confirms the
+tests catch every one. Writing that script turned up gaps that now have tests of their own.
+
+CI runs all of it on Python 3.10, 3.12 and 3.13. Testing on more than one version found a real bug:
+on pandas 2.x, a report column that was entirely blank came through as text and crashed the app.
+
+## What's in here
 
 ```
-recon/ingest.py    file reading, header detection, rules + LLM column mapping, validation
-recon/engine.py    settlement matching and all exception rules
-recon/report.py    summary (LLM with number guard, or template), HTML report
-recon/llm.py       small OpenAI-compatible client, standard library only
-app.py             Streamlit UI
-data/generate.py   synthetic month with injected problems + ground truth, 4 bank layouts
-eval/run_eval.py   precision/recall per problem type, clean and hard modes
-tests/             unit, integration and app tests; conftest.py holds the fake LLM server
+app.py             the web app
+recon/ingest.py    reading files, finding the header row, column mapping, the balance check
+recon/engine.py    payout matching and every check
+recon/report.py    the summary and the downloadable report
+recon/look.py      the look shared by the app and the report
+recon/llm.py       a small client for any OpenAI-compatible API, standard library only
+data/generate.py   builds a synthetic month with known problems, in four bank layouts
+eval/run_eval.py   precision and recall per problem type
+tests/             unit, integration and app tests, plus the planted-bug check
 ```
 
-## Limitations
+## Not done yet
 
-- Sample data is synthetic. The settlement report follows the columns of Razorpay's settlement
-  recon export, but real exports may differ; the column mapper exists for exactly that.
-- Settlements are matched one payout to one bank credit. Batched or split payouts aren't handled yet.
-- PDF statements aren't supported; export CSV/XLSX from net banking.
-- No storage, no login: files are processed in memory.
-
-## Next
-
-1. Run it on real exports from 3–5 merchants and record, per merchant: issues found, rupees
-   flagged, false alarms, and minutes saved versus their Excel process.
-2. Turn every false alarm into a regression test.
-3. PDF statements, then a monthly scheduled run that emails the owner only when something is wrong.
+- It hasn't been run on real merchant exports. That's next.
+- One settlement is matched to one bank credit. Banks that batch several payouts into one credit
+  aren't handled.
+- PDF statements aren't supported. Download CSV or Excel from net banking instead.
+- Nothing is stored and there are no accounts, so there's no month-on-month history.
 
 ---
 
-Built AI-first: designed and written with an AI pair programmer, then tested and iterated
-against the evaluation harness.
+Made by [Sai Jayanth](https://www.linkedin.com/in/asaijayanth), with an AI pair programmer. The
+typefaces are Instrument Serif, DM Sans and DM Mono, all under the SIL Open Font License; their
+licences are in `static/fonts`.

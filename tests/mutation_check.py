@@ -76,12 +76,19 @@ MUTANTS = [
     ),
     (
         "recon/report.py",
-        '<div class="summary">{html.escape(summary)}</div>',
-        '<div class="summary">{summary}</div>',
+        '<p class="rc-summary">{escape(summary)}</p>',
+        '<p class="rc-summary">{summary}</p>',
         "HTML not escaped",
     ),
     ("recon/llm.py", 'f"Bearer {self.api_key}"', '"Bearer x"', "API key not sent"),
     ("app.py", "if vote or comment:", "if vote and comment:", "feedback not recorded"),
+    (
+        "recon/look.py",
+        "kinds.setdefault(e.type, []).append(e)",
+        "kinds.setdefault(e.key, []).append(e)",
+        "issues not grouped by kind",
+    ),
+    ("app.py", "        if client is None:", "        if client is not None:", "wrong message when AI is off"),
 ]
 
 
