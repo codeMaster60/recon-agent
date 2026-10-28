@@ -1,0 +1,90 @@
+[
+  {
+    "type": "fee_anomaly",
+    "key": "pay_KM2awH7C9HehwT"
+  },
+  {
+    "type": "fee_anomaly",
+    "key": "pay_Hcz8dXxvzp1vTB"
+  },
+  {
+    "type": "fee_anomaly",
+    "key": "pay_mGdAYJ8xrauScP"
+  },
+  {
+    "type": "gst_mismatch",
+    "key": "pay_4JgWMR1A1ZTh7t"
+  },
+  {
+    "type": "gst_mismatch",
+    "key": "pay_XZxPmzUzn8aB5k"
+  },
+  {
+    "type": "unsettled_payment",
+    "key": "pay_CCDDWKu6hSNlZh"
+  },
+  {
+    "type": "unsettled_payment",
+    "key": "pay_CxzqolYTDk16x0"
+  },
+  {
+    "type": "unsettled_payment",
+    "key": "pay_TotnUOwJWEKw0S"
+  },
+  {
+    "type": "duplicate_payment",
+    "key": "FX070261"
+  },
+  {
+    "type": "duplicate_payment",
+    "key": "FX070051"
+  },
+  {
+    "type": "order_without_payment",
+    "key": "FX070061"
+  },
+  {
+    "type": "order_without_payment",
+    "key": "FX070175"
+  },
+  {
+    "type": "order_without_payment",
+    "key": "FX070259"
+  },
+  {
+    "type": "paid_on_cancelled_order",
+    "key": "FX070176"
+  },
+  {
+    "type": "paid_on_cancelled_order",
+    "key": "FX070045"
+  },
+  {
+    "type": "amount_mismatch_order",
+    "key": "FX070237"
+  },
+  {
+    "type": "amount_mismatch_order",
+    "key": "FX070140"
+  },
+  {
+    "type": "missing_payout",
+    "key": "setl_u3MbhqA7NlOGv1"
+  },
+  {
+    "type": "missing_payout",
+    "key": "setl_6MkLmCi4nUvlz0"
+  },
+  {
+    "type": "short_credit",
+    "key": "setl_qNgj4vu3AbIggl"
+  },
+  {
+    "type": "short_credit",
+    "key": "setl_lK35hJlbpxGGEi"
+  },
+  {
+    "type": "unknown_credit",
+    "key": "AXISN26261548018"
+  }
+]
