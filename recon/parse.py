@@ -48,10 +48,21 @@ def parse_amount(value) -> float | None:
 # Day-first formats come before month-first ones: Indian statements are day-first,
 # so an ambiguous column (every day <= 12) resolves the Indian way.
 DATE_FORMATS = [
-    "%d/%m/%y", "%d/%m/%Y", "%d-%m-%Y", "%d-%m-%y", "%d.%m.%Y",
-    "%d-%b-%Y", "%d-%b-%y", "%d %b %Y", "%d %b %y", "%d-%B-%Y", "%d %B %Y",
-    "%Y-%m-%d", "%Y/%m/%d",
-    "%m/%d/%Y", "%m/%d/%y",
+    "%d/%m/%y",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%d-%m-%y",
+    "%d.%m.%Y",
+    "%d-%b-%Y",
+    "%d-%b-%y",
+    "%d %b %Y",
+    "%d %b %y",
+    "%d-%B-%Y",
+    "%d %B %Y",
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%m/%d/%Y",
+    "%m/%d/%y",
 ]
 
 
@@ -129,7 +140,5 @@ def inr(amount: float) -> str:
         while len(head) > 2:
             groups.insert(0, head[-2:])
             head = head[:-2]
-        if head:
-            groups.insert(0, head)
-        whole = ",".join(groups + [tail])
+        whole = ",".join([head] + groups + [tail])
     return f"{'-' if negative else ''}{whole}.{frac}"

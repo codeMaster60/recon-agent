@@ -64,8 +64,11 @@ def get_client() -> OpenAICompatClient | None:
     key = os.getenv("RECON_LLM_API_KEY") or os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not key:
         return None
-    default_base = "https://api.openai.com/v1" if (os.getenv("OPENAI_API_KEY") and not os.getenv("GROQ_API_KEY")
-                                                  and not os.getenv("RECON_LLM_API_KEY")) else "https://api.groq.com/openai/v1"
+    default_base = (
+        "https://api.openai.com/v1"
+        if (os.getenv("OPENAI_API_KEY") and not os.getenv("GROQ_API_KEY") and not os.getenv("RECON_LLM_API_KEY"))
+        else "https://api.groq.com/openai/v1"
+    )
     default_model = "gpt-4o-mini" if "openai.com" in default_base else "llama-3.3-70b-versatile"
     return OpenAICompatClient(
         api_key=key,
@@ -82,7 +85,7 @@ def parse_json_object(text: str) -> dict:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if not match:
-            raise LLMError(f"No JSON object in reply: {text[:200]}")
+            raise LLMError(f"No JSON object in reply: {text[:200]}") from None
         value = json.loads(match.group(0))
     if not isinstance(value, dict):
         raise LLMError("Reply JSON is not an object")

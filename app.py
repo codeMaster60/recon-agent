@@ -30,13 +30,22 @@ except Exception:  # no secrets file locally
     pass
 
 st.title("Recon Agent")
-st.caption("Did every Razorpay payout reach your bank, in full, at the fees you agreed? "
-           "Upload three exports and find out in seconds. Files are processed in memory and never stored.")
+st.caption(
+    "Did every Razorpay payout reach your bank, in full, at the fees you agreed? "
+    "Upload three exports and find out in seconds. Files are processed in memory and never stored."
+)
 
 with st.sidebar:
     st.subheader("Settings")
     client = get_client()
-    st.write("AI column mapping: " + ("**on** (" + client.model + ")" if client else "**off** - rules only. Set GROQ_API_KEY to map unfamiliar bank layouts."))
+    st.write(
+        "AI column mapping: "
+        + (
+            "**on** (" + client.model + ")"
+            if client
+            else "**off** - rules only. Set GROQ_API_KEY to map unfamiliar bank layouts."
+        )
+    )
     cfg = Config()
     st.markdown("**Your fee rate card (% before GST)**")
     for method in ("upi", "card", "netbanking", "wallet"):
@@ -52,16 +61,26 @@ use_sample = st.button("Try with sample data")
 if use_sample:
     st.session_state["sample"] = True
 if st.session_state.get("sample") and not report_file:
-    layout = st.radio("Sample bank layout", ["a (CSV, Withdrawal/Deposit)", "b (Excel, Debit/Credit)",
-                                             "c (single Amount + Cr/Dr)", "d (Hindi headers - needs AI)"], horizontal=True)
+    layout = st.radio(
+        "Sample bank layout",
+        [
+            "a (CSV, Withdrawal/Deposit)",
+            "b (Excel, Debit/Credit)",
+            "c (single Amount + Cr/Dr)",
+            "d (Hindi headers - needs AI)",
+        ],
+        horizontal=True,
+    )
     ext = {"a": "csv", "b": "xlsx", "c": "csv", "d": "csv"}[layout[0]]
     report_file = SAMPLES / "settlement_report.csv"
     bank_file = SAMPLES / f"bank_format_{layout[0]}.{ext}"
     orders_file = SAMPLES / "orders.csv"
 
 if not report_file:
-    st.info("Start with the settlement report (Razorpay Dashboard → Reports → Settlement recon). "
-            "Add the bank statement for the same dates to check payouts.")
+    st.info(
+        "Start with the settlement report (Razorpay Dashboard → Reports → Settlement recon). "
+        "Add the bank statement for the same dates to check payouts."
+    )
     st.stop()
 
 mode = "auto"
@@ -91,23 +110,31 @@ st.subheader(f"Issues ({len(result.exceptions)})")
 frame = result.exceptions_frame()
 if not frame.empty:
     frame.insert(0, "priority", frame.pop("severity").map(SEVERITY_LABEL))
-    st.dataframe(frame, width="stretch", hide_index=True,
-                 column_config={"amount_at_risk": st.column_config.NumberColumn("amount (Rs)", format="%.2f")})
+    st.dataframe(
+        frame,
+        width="stretch",
+        hide_index=True,
+        column_config={"amount_at_risk": st.column_config.NumberColumn("amount (Rs)", format="%.2f")},
+    )
 for note in result.notes:
     st.caption(note)
 
 with st.expander("How each file was read"):
     for label, loaded in (("Settlement report", report), ("Bank statement", bank), ("Orders", orders)):
         if loaded:
-            st.markdown(f"**{label}** — header on row {loaded.header_row + 1}, mapped by **{loaded.chosen.source}**, "
-                        f"validation score {loaded.chosen.score:.2f} {loaded.chosen.checks}")
+            st.markdown(
+                f"**{label}** — header on row {loaded.header_row + 1}, mapped by **{loaded.chosen.source}**, "
+                f"validation score {loaded.chosen.score:.2f} {loaded.chosen.checks}"
+            )
             st.json(loaded.chosen.mapping)
             for n in loaded.chosen.notes:
                 st.caption(n)
 
 d1, d2 = st.columns(2)
 d1.download_button("Download report (HTML)", to_html(result, summary), "recon_report.html", "text/html")
-d2.download_button("Download issues (CSV)", frame.to_csv(index=False) if not frame.empty else "", "exceptions.csv", "text/csv")
+d2.download_button(
+    "Download issues (CSV)", frame.to_csv(index=False) if not frame.empty else "", "exceptions.csv", "text/csv"
+)
 
 st.divider()
 st.caption("Was this useful? It helps me decide what to build next.")

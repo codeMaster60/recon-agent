@@ -1,8 +1,8 @@
 """Measure detection accuracy against injected ground truth, across seeds and bank layouts.
 
-    python eval/run_eval.py                 # rules only, 20 seeds x 3 layouts
-    python eval/run_eval.py --llm           # also run the LLM mapping path (needs GROQ_API_KEY)
-    python eval/run_eval.py --seeds 50 --write eval/RESULTS.md
+python eval/run_eval.py                 # rules only, 20 seeds x 3 layouts
+python eval/run_eval.py --llm           # also run the LLM mapping path (needs GROQ_API_KEY)
+python eval/run_eval.py --seeds 50 --write eval/RESULTS.md
 """
 
 from __future__ import annotations
@@ -64,19 +64,38 @@ def run(seeds: int, layouts: list[str], use_llm: bool, hard: bool = False) -> di
                     counts[kind]["fn"] += len(t_k - f_k)
                     if f_k - t_k and len(fp_examples) < 10:
                         fp_examples.append(f"seed {seed} layout {layout}: {kind} {sorted(f_k - t_k)}")
-    return {"counts": counts, "mapping": mapping, "fp_examples": fp_examples, "seconds": time.time() - t0,
-            "seeds": seeds, "mode": mode, "hard": hard, "high": high}
+    return {
+        "counts": counts,
+        "mapping": mapping,
+        "fp_examples": fp_examples,
+        "seconds": time.time() - t0,
+        "seeds": seeds,
+        "mode": mode,
+        "hard": hard,
+        "high": high,
+    }
 
 
 def to_markdown(res: dict) -> str:
-    lines = [f"Seeds: {res['seeds']} · data: {'hard (posting lag + truncated narrations)' if res['hard'] else 'clean'} · "
-             f"mapping mode: `{res['mode']}` · runtime {res['seconds']:.1f}s", "",
-             "### Column mapping by bank layout", "", "| Layout | Mapped | Failed | Source |", "|---|---|---|---|"]
+    lines = [
+        f"Seeds: {res['seeds']} · data: {'hard (posting lag + truncated narrations)' if res['hard'] else 'clean'} · "
+        f"mapping mode: `{res['mode']}` · runtime {res['seconds']:.1f}s",
+        "",
+        "### Column mapping by bank layout",
+        "",
+        "| Layout | Mapped | Failed | Source |",
+        "|---|---|---|---|",
+    ]
     for layout, m in sorted(res["mapping"].items()):
         src = ", ".join(f"{k}: {v}" for k, v in m["source"].items()) or "-"
         lines.append(f"| {layout} | {m['ok']} | {m['fail']} | {src} |")
-    lines += ["", "### Exception detection (mapped layouts only)", "",
-              "| Problem | Injected | Caught | False alarms | Precision | Recall |", "|---|---|---|---|---|---|"]
+    lines += [
+        "",
+        "### Exception detection (mapped layouts only)",
+        "",
+        "| Problem | Injected | Caught | False alarms | Precision | Recall |",
+        "|---|---|---|---|---|---|",
+    ]
     tp = fp = fn = 0
     for kind, c in sorted(res["counts"].items()):
         injected = c["tp"] + c["fn"]
@@ -84,10 +103,15 @@ def to_markdown(res: dict) -> str:
         r = c["tp"] / injected if injected else 1.0
         lines.append(f"| {kind} | {injected} | {c['tp']} | {c['fp']} | {p:.1%} | {r:.1%} |")
         tp, fp, fn = tp + c["tp"], fp + c["fp"], fn + c["fn"]
-    lines.append(f"| **all** | **{tp + fn}** | **{tp}** | **{fp}** | **{tp / max(1, tp + fp):.1%}** | **{tp / max(1, tp + fn):.1%}** |")
+    lines.append(
+        f"| **all** | **{tp + fn}** | **{tp}** | **{fp}** | **{tp / max(1, tp + fp):.1%}** | **{tp / max(1, tp + fn):.1%}** |"
+    )
     h = res["high"]
-    lines += ["", f"High-severity alerts (the ones a merchant acts on first): {h['tp'] + h['fp']} raised, "
-              f"{h['fp']} false, precision {h['tp'] / max(1, h['tp'] + h['fp']):.1%}."]
+    lines += [
+        "",
+        f"High-severity alerts (the ones a merchant acts on first): {h['tp'] + h['fp']} raised, "
+        f"{h['fp']} false, precision {h['tp'] / max(1, h['tp'] + h['fp']):.1%}.",
+    ]
     if res["fp_examples"]:
         lines += ["", "False alarm examples:", ""] + [f"- {x}" for x in res["fp_examples"]]
     return "\n".join(lines)

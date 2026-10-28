@@ -21,8 +21,10 @@ SEVERITY_LABEL = {"high": "Act now", "medium": "Check", "low": "FYI"}
 def template_summary(result: Result) -> str:
     s = result.stats
     if not result.exceptions:
-        return (f"All clear. {s['settlements_matched']} payouts matched the bank exactly "
-                f"(Rs {inr(s['received_payouts'])}). No fee, GST or order problems found.")
+        return (
+            f"All clear. {s['settlements_matched']} payouts matched the bank exactly "
+            f"(Rs {inr(s['received_payouts'])}). No fee, GST or order problems found."
+        )
     high = [e for e in result.exceptions if e.severity == "high"]
     lines = [
         f"{len(result.exceptions)} issues found, Rs {inr(s['at_risk_high'])} needs action now "
@@ -36,13 +38,7 @@ def template_summary(result: Result) -> str:
 
 
 def _numbers(text: str) -> set[float]:
-    found = set()
-    for token in re.findall(r"\d[\d,]*(?:\.\d+)?", text):
-        try:
-            found.add(round(float(token.replace(",", "")), 2))
-        except ValueError:
-            pass
-    return found
+    return {round(float(t.replace(",", "")), 2) for t in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
 
 
 def _allowed_numbers(facts: dict) -> set[float]:
@@ -70,14 +66,22 @@ def llm_summary(result: Result, client: LLMClient) -> tuple[str, bool]:
         "stats": {k: v for k, v in result.stats.items() if k != "by_type"},
         "issues_by_type": result.stats["by_type"],
         "top_issues": [
-            {"title": e.title, "severity": e.severity, "amount": e.amount_at_risk, "detail": e.detail, "action": e.action}
+            {
+                "title": e.title,
+                "severity": e.severity,
+                "amount": e.amount_at_risk,
+                "detail": e.detail,
+                "action": e.action,
+            }
             for e in result.exceptions[:6]
         ],
         "notes": result.notes,
     }
-    system = ("You write a reconciliation summary for the owner of a small Indian business. Plain English, "
-              "no jargon, max 6 short lines. Lead with the money that needs action. Use ONLY numbers that "
-              "appear in the facts JSON; never compute new totals. Write rupees as 'Rs'.")
+    system = (
+        "You write a reconciliation summary for the owner of a small Indian business. Plain English, "
+        "no jargon, max 6 short lines. Lead with the money that needs action. Use ONLY numbers that "
+        "appear in the facts JSON; never compute new totals. Write rupees as 'Rs'."
+    )
     try:
         text = client.chat(system, json.dumps(facts, default=str), json_mode=False).strip()
     except LLMError:
@@ -89,14 +93,19 @@ def llm_summary(result: Result, client: LLMClient) -> tuple[str, bool]:
     return text, True
 
 
-def to_html(result: Result, summary: str, mapping_notes: list[str] | None = None, title: str = "Reconciliation report") -> str:
+def to_html(
+    result: Result, summary: str, mapping_notes: list[str] | None = None, title: str = "Reconciliation report"
+) -> str:
     s = result.stats
-    rows = "\n".join(
-        f"<tr class='{e.severity}'><td><span class='pill {e.severity}'>{SEVERITY_LABEL[e.severity]}</span></td>"
-        f"<td>{html.escape(e.title)}</td><td class='num'>Rs {inr(e.amount_at_risk)}</td>"
-        f"<td>{html.escape(e.detail)}<div class='action'>{html.escape(e.action)}</div></td></tr>"
-        for e in result.exceptions
-    ) or "<tr><td colspan='4'>No issues found.</td></tr>"
+    rows = (
+        "\n".join(
+            f"<tr class='{e.severity}'><td><span class='pill {e.severity}'>{SEVERITY_LABEL[e.severity]}</span></td>"
+            f"<td>{html.escape(e.title)}</td><td class='num'>Rs {inr(e.amount_at_risk)}</td>"
+            f"<td>{html.escape(e.detail)}<div class='action'>{html.escape(e.action)}</div></td></tr>"
+            for e in result.exceptions
+        )
+        or "<tr><td colspan='4'>No issues found.</td></tr>"
+    )
     notes = "".join(f"<li>{html.escape(n)}</li>" for n in result.notes + (mapping_notes or []))
     tiles = [
         ("Needs action", f"Rs {inr(s['at_risk_high'])}"),
@@ -125,7 +134,7 @@ th,td{{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);ver
 ul{{color:var(--muted);font-size:13px}}
 </style></head><body><main>
 <h1>{html.escape(title)}</h1>
-<p class="sub">Statement {s['statement_from']} to {s['statement_to']} · {s['payments']} payments · Rs {inr(s['gross_collected'])} collected</p>
+<p class="sub">Statement {s["statement_from"]} to {s["statement_to"]} · {s["payments"]} payments · Rs {inr(s["gross_collected"])} collected</p>
 <div class="summary">{html.escape(summary)}</div>
 <div class="tiles">{tiles_html}</div>
 <div class="wrap"><table><thead><tr><th>Priority</th><th>Issue</th><th class="num">Amount</th><th>Details and next step</th></tr></thead>

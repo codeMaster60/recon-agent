@@ -24,8 +24,8 @@ from .llm import LLMClient, LLMError, parse_json_object
 from .parse import is_blank, norm_text, parse_amount, parse_dates
 from .schema import BANK, ORDERS, REPORT, Schema
 
-ACCEPT_SCORE = 0.85       # minimum validation score for a mapping to be used
-RULES_FAST_PATH = 0.95    # rules mapping this good -> don't spend an LLM call
+ACCEPT_SCORE = 0.85  # minimum validation score for a mapping to be used
+RULES_FAST_PATH = 0.95  # rules mapping this good -> don't spend an LLM call
 
 
 class MappingError(ValueError):
@@ -35,7 +35,7 @@ class MappingError(ValueError):
 @dataclass
 class MappingResult:
     mapping: dict[str, str]
-    source: str                      # "rules" | "llm"
+    source: str  # "rules" | "llm"
     score: float = 0.0
     checks: dict[str, float] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
@@ -55,6 +55,7 @@ class Loaded:
 
 
 # --------------------------------------------------------------------------- reading
+
 
 def read_raw(source, filename: str | None = None) -> list[list[str]]:
     """Return the sheet as a list of string rows. Accepts a path, bytes, or an uploaded file."""
@@ -83,12 +84,10 @@ def read_raw(source, filename: str | None = None) -> list[list[str]]:
             rows.append(row)
         return rows
 
-    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
-        try:
-            text = data.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:  # older bank exports are often Windows-1252
+        text = data.decode("cp1252", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
         delimiter = dialect.delimiter
@@ -98,6 +97,7 @@ def read_raw(source, filename: str | None = None) -> list[list[str]]:
 
 
 # --------------------------------------------------------------------------- header + rules mapping
+
 
 def _norm_header(header: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(header).lower()).strip()
@@ -179,11 +179,20 @@ def llm_mapping(headers: list[str], samples: list[list[str]], schema: Schema, cl
 
 # --------------------------------------------------------------------------- canonical frames
 
+
 def _column(rows: list[list[str]], headers: list[str], mapping: dict[str, str], name: str) -> list[str]:
     if name not in mapping:
         return [""] * len(rows)
     idx = headers.index(mapping[name])
     return [row[idx] if idx < len(row) else "" for row in rows]
+
+
+def _as_float(frame: pd.DataFrame, *columns: str) -> pd.DataFrame:
+    """Force numeric dtype. A column of only blanks would otherwise be 'object', and pandas 2.x
+    then refuses arithmetic like .round() on it (pandas 3 is more lenient, which hides the bug)."""
+    for c in columns:
+        frame[c] = pd.to_numeric(frame[c], errors="coerce").astype("float64")
+    return frame
 
 
 def _bank_frame(rows, headers, mapping) -> pd.DataFrame:
@@ -193,32 +202,43 @@ def _bank_frame(rows, headers, mapping) -> pd.DataFrame:
     balances = [parse_amount(v) for v in _column(rows, headers, mapping, "balance")]
     amounts: list[float | None] = []
     if "debit" in mapping or "credit" in mapping:
-        for dr, cr in zip(_column(rows, headers, mapping, "debit"), _column(rows, headers, mapping, "credit")):
+        for dr, cr in zip(
+            _column(rows, headers, mapping, "debit"), _column(rows, headers, mapping, "credit"), strict=True
+        ):
             d, c = parse_amount(dr), parse_amount(cr)
             amounts.append(None if d is None and c is None else abs(c or 0.0) - abs(d or 0.0))
-    elif "amount" in mapping:
+    else:  # single amount column, optionally signed by a CR/DR column (caller ensures one is mapped)
         drcr = _column(rows, headers, mapping, "drcr")
-        for value, flag in zip(_column(rows, headers, mapping, "amount"), drcr):
+        for value, flag in zip(_column(rows, headers, mapping, "amount"), drcr, strict=True):
             a = parse_amount(value)
             token = norm_text(flag).lower()
             if a is not None and token:
                 a = abs(a) if token.startswith("c") else -abs(a) if token.startswith("d") else a
             amounts.append(a)
-    else:
-        amounts = [None] * len(rows)
-    frame = pd.DataFrame({
-        "date": dates, "description": [norm_text(d) for d in desc], "ref": [norm_text(r) for r in refs],
-        "amount": amounts, "balance": balances, "row": range(len(rows)),
-    })
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "description": [norm_text(d) for d in desc],
+            "ref": [norm_text(r) for r in refs],
+            "amount": amounts,
+            "balance": balances,
+            "row": range(len(rows)),
+        }
+    )
+    _as_float(frame, "amount", "balance")
     return frame[frame["date"].notna() & frame["amount"].notna()].reset_index(drop=True)
 
 
-def _continuity(frame: pd.DataFrame, sign: float = 1.0) -> float:
-    """Share of consecutive rows where previous balance + amount == balance (either sort order)."""
+def _continuity(frame: pd.DataFrame, sign: float = 1.0) -> float | None:
+    """Share of consecutive rows where previous balance + amount == balance (either sort order).
+
+    None when fewer than two consecutive rows carry a balance, i.e. nothing can be checked.
+    """
     bal, amt = frame["balance"].tolist(), (frame["amount"] * sign).tolist()
-    pairs = [(i - 1, i) for i in range(1, len(bal)) if bal[i] is not None and bal[i - 1] is not None]
+    has = frame["balance"].notna().tolist()  # blank balance cells arrive as NaN
+    pairs = [(i - 1, i) for i in range(1, len(bal)) if has[i] and has[i - 1]]
     if not pairs:
-        return float("nan")
+        return None
     forward = sum(abs(bal[a] + amt[b] - bal[b]) < 0.011 for a, b in pairs) / len(pairs)
     backward = sum(abs(bal[b] + amt[a] - bal[a]) < 0.011 for a, b in pairs) / len(pairs)
     return max(forward, backward)
@@ -235,8 +255,9 @@ def _score_bank(rows, headers, mapping) -> tuple[float, dict, list[str], pd.Data
     date_rate = len(frame) / max(1, len(nonblank))
     text_rate = sum(parse_amount(d) is None for d in frame["description"]) / max(1, len(frame))
     checks = {"rows_parsed": round(date_rate, 3), "description_is_text": round(text_rate, 3)}
-    if "balance" in mapping and frame["balance"].notna().any():
-        straight, flipped = _continuity(frame, 1.0), _continuity(frame, -1.0)
+    straight = _continuity(frame, 1.0) if "balance" in mapping else None
+    if straight is not None:
+        flipped = _continuity(frame, -1.0)
         if flipped > straight + 0.2:
             frame["amount"] = -frame["amount"]
             notes.append("debit/credit looked swapped; corrected using the running balance")
@@ -244,7 +265,7 @@ def _score_bank(rows, headers, mapping) -> tuple[float, dict, list[str], pd.Data
         checks["balance_continuity"] = round(straight, 3)
         score = (date_rate + text_rate + 2 * straight) / 4
     else:
-        notes.append("no balance column, so the mapping could not be cross-checked")
+        notes.append("no usable balance column, so the mapping could not be cross-checked")
         score = 0.9 * (date_rate + text_rate) / 2
     return score, checks, notes, frame
 
@@ -261,14 +282,17 @@ def _orders_frame(rows, headers, mapping) -> pd.DataFrame:
             return "paid"
         return "pending"
 
-    frame = pd.DataFrame({
-        "order_ref": [norm_text(v) for v in _column(rows, headers, mapping, "order_ref")],
-        "amount": [parse_amount(v) for v in _column(rows, headers, mapping, "amount")],
-        "status_raw": status_raw,
-        "status": [norm_status(s) for s in status_raw],
-        "created_at": parse_dates(_column(rows, headers, mapping, "created_at")),
-        "customer": [norm_text(v) for v in _column(rows, headers, mapping, "customer")],
-    })
+    frame = pd.DataFrame(
+        {
+            "order_ref": [norm_text(v) for v in _column(rows, headers, mapping, "order_ref")],
+            "amount": [parse_amount(v) for v in _column(rows, headers, mapping, "amount")],
+            "status_raw": status_raw,
+            "status": [norm_status(s) for s in status_raw],
+            "created_at": parse_dates(_column(rows, headers, mapping, "created_at")),
+            "customer": [norm_text(v) for v in _column(rows, headers, mapping, "customer")],
+        }
+    )
+    _as_float(frame, "amount")
     return frame[(frame["order_ref"] != "") & frame["amount"].notna()].reset_index(drop=True)
 
 
@@ -289,25 +313,33 @@ def _flag(value) -> bool:
 def _report_frame(rows, headers, mapping) -> pd.DataFrame:
     col = lambda name: _column(rows, headers, mapping, name)  # noqa: E731
     num = lambda name: [parse_amount(v) for v in col(name)]  # noqa: E731
-    frame = pd.DataFrame({
-        "entity_id": [norm_text(v) for v in col("entity_id")],
-        "type": [norm_text(v).lower() for v in col("type")],
-        "amount": num("amount"), "fee": num("fee"), "tax": num("tax"),
-        "credit": num("credit"), "debit": num("debit"),
-        "on_hold": [_flag(v) for v in col("on_hold")],
-        "settled": [_flag(v) for v in col("settled")],
-        "created_at": parse_dates(col("created_at")),
-        "settled_at": parse_dates(col("settled_at")),
-        "settlement_id": [norm_text(v) for v in col("settlement_id")],
-        "settlement_utr": [norm_text(v).upper() for v in col("settlement_utr")],
-        "order_receipt": [norm_text(v) for v in col("order_receipt")],
-        "method": [norm_text(v).lower() for v in col("method")],
-    })
+    frame = pd.DataFrame(
+        {
+            "entity_id": [norm_text(v) for v in col("entity_id")],
+            "type": [norm_text(v).lower() for v in col("type")],
+            "amount": num("amount"),
+            "fee": num("fee"),
+            "tax": num("tax"),
+            "credit": num("credit"),
+            "debit": num("debit"),
+            "on_hold": [_flag(v) for v in col("on_hold")],
+            "settled": [_flag(v) for v in col("settled")],
+            "created_at": parse_dates(col("created_at")),
+            "settled_at": parse_dates(col("settled_at")),
+            "settlement_id": [norm_text(v) for v in col("settlement_id")],
+            "settlement_utr": [norm_text(v).upper() for v in col("settlement_utr")],
+            "order_receipt": [norm_text(v) for v in col("order_receipt")],
+            "method": [norm_text(v).lower() for v in col("method")],
+        }
+    )
+    _as_float(frame, "amount", "fee", "tax", "credit", "debit")
     frame = frame[(frame["entity_id"] != "") & frame["amount"].notna()].reset_index(drop=True)
     for c in ("fee", "tax"):
         frame[c] = frame[c].fillna(0.0)
     is_pay = frame["type"] == "payment"
-    frame["credit"] = frame["credit"].where(frame["credit"].notna(), (frame["amount"] - frame["fee"] - frame["tax"]).where(is_pay, 0.0))
+    frame["credit"] = frame["credit"].where(
+        frame["credit"].notna(), (frame["amount"] - frame["fee"] - frame["tax"]).where(is_pay, 0.0)
+    )
     frame["debit"] = frame["debit"].where(frame["debit"].notna(), frame["amount"].where(~is_pay, 0.0))
     if "settled" not in mapping:
         frame["settled"] = frame["settlement_id"] != ""
@@ -320,7 +352,11 @@ def _score_report(rows, headers, mapping):
     frame = _report_frame(rows, headers, mapping)
     nonblank = [r for r in rows if any(r)]
     rate = len(frame) / max(1, len(nonblank))
-    known = frame["type"].isin(["payment", "refund", "adjustment", "transfer", "reversal", "dispute"]).mean() if len(frame) else 0
+    known = (
+        frame["type"].isin(["payment", "refund", "adjustment", "transfer", "reversal", "dispute"]).mean()
+        if len(frame)
+        else 0
+    )
     return (rate + known) / 2, {"rows_parsed": round(rate, 3), "known_types": round(float(known), 3)}, [], frame
 
 
@@ -329,13 +365,19 @@ _SCORERS = {"bank_statement": _score_bank, "orders": _score_orders, "settlement_
 
 # --------------------------------------------------------------------------- public API
 
-def load(source, schema: Schema, filename: str | None = None, client: LLMClient | None = None,
-         mode: str = "auto") -> Loaded:
+
+def load(
+    source, schema: Schema, filename: str | None = None, client: LLMClient | None = None, mode: str = "auto"
+) -> Loaded:
     """mode: 'rules' (never call the LLM), 'llm' (always try it), 'auto' (LLM only if rules fall short)."""
     rows = read_raw(source, filename)
     header_row = detect_header_row(rows, schema)
     headers = [h.strip() for h in rows[header_row]]
-    body = [r + [""] * (len(headers) - len(r)) for r in rows[header_row + 1:]]
+    body = [r + [""] * (len(headers) - len(r)) for r in rows[header_row + 1 :]]
+    if not any(any(cell for cell in r) for r in body):
+        raise MappingError(
+            f"The {schema.name.replace('_', ' ')} has column headers but no rows. Check the date range you exported."
+        )
     scorer = _SCORERS[schema.name]
 
     tried: list[MappingResult] = []

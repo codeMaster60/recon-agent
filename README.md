@@ -75,7 +75,6 @@ Real merchant exports are the actual test. See *Next* below.
 
 ```bash
 pip install -r requirements.txt
-python data/generate.py                      # writes a sample month to data/samples/
 streamlit run app.py                         # web app; click "Try with sample data"
 
 # or the CLI
@@ -83,7 +82,7 @@ python -m recon --report data/samples/settlement_report.csv \
                 --bank data/samples/bank_format_b.xlsx \
                 --orders data/samples/orders.csv --out out/
 
-pytest -q                                    # 27 tests, no API key needed (LLM is faked)
+python data/generate.py --seed 7 --hard      # regenerate a sample month (optionally messy)
 python eval/run_eval.py --hard               # accuracy on messy data
 ```
 
@@ -97,16 +96,38 @@ add `GROQ_API_KEY` under Secrets.
 **Your fee rates:** the default rate card (2% per method) is a placeholder. Set your real plan in
 the app sidebar or pass `--rate-card rates.json`.
 
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest --cov                                 # 111 tests; fails if line or branch coverage drops below 100%
+ruff check . && ruff format --check .
+```
+
+- **100% line and branch coverage** across the engine, file reading, LLM client, report, CLI, the
+  Streamlit app (driven with Streamlit's `AppTest`, including file uploads), the generator and the
+  eval script.
+- **The real HTTP client is tested against a local fake LLM server** that speaks the
+  OpenAI-compatible protocol: auth header, JSON mode, HTTP errors, non-JSON replies, unreachable
+  host. No API key or internet needed.
+- **Planted-bug check:** 18 realistic bugs were injected one at a time (wrong GST rate, refunds
+  ignored, dates read month-first, hallucinated numbers allowed, API key not sent...). The suite
+  catches all 18 (`python tests/mutation_check.py`). Writing it found two gaps, now covered by tests.
+- **CI runs on Python 3.10, 3.12 and 3.13**, which covers pandas 2.x and 3.x. Testing on both
+  found a real bug: report columns that were entirely blank became non-numeric on pandas 2.x and
+  crashed the app.
+
 ## Layout
 
 ```
 recon/ingest.py    file reading, header detection, rules + LLM column mapping, validation
 recon/engine.py    settlement matching and all exception rules
 recon/report.py    summary (LLM with number guard, or template), HTML report
-recon/llm.py       ~80-line OpenAI-compatible client, standard library only
+recon/llm.py       small OpenAI-compatible client, standard library only
 app.py             Streamlit UI
 data/generate.py   synthetic month with injected problems + ground truth, 4 bank layouts
 eval/run_eval.py   precision/recall per problem type, clean and hard modes
+tests/             unit, integration and app tests; conftest.py holds the fake LLM server
 ```
 
 ## Limitations

@@ -13,7 +13,7 @@ Run `python eval/run_eval.py --llm` with `GROQ_API_KEY` set to measure that path
 
 ## Clean data
 
-Seeds: 30 · data: clean · mapping mode: `rules` · runtime 26.0s
+Seeds: 30 · data: clean · mapping mode: `rules`
 
 ### Column mapping by bank layout
 
@@ -44,7 +44,7 @@ High-severity alerts (the ones a merchant acts on first): 1257 raised, 0 false, 
 
 ## Hard data
 
-Seeds: 30 · data: hard (posting lag + truncated narrations) · mapping mode: `rules` · runtime 25.8s
+Seeds: 30 · data: hard (posting lag + truncated narrations) · mapping mode: `rules`
 
 ### Column mapping by bank layout
 
@@ -81,7 +81,7 @@ False alarm examples:
 - seed 6 layout a: missing_payout ['setl_RoiVfQB1bWmyDE']
 - seed 6 layout b: missing_payout ['setl_RoiVfQB1bWmyDE']
 - seed 6 layout c: missing_payout ['setl_RoiVfQB1bWmyDE']
-- seed 7 layout a: unknown_credit ['bank-row-42']
 - seed 7 layout a: missing_payout ['setl_lK35hJlbpxGGEi']
-- seed 7 layout b: unknown_credit ['bank-row-42']
+- seed 7 layout a: unknown_credit ['bank-row-42']
 - seed 7 layout b: missing_payout ['setl_lK35hJlbpxGGEi']
+- seed 7 layout b: unknown_credit ['bank-row-42']

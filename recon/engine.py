@@ -21,17 +21,24 @@ SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 @dataclass
 class Config:
     # Fee % per method, before GST. Defaults are a placeholder: edit to match your Razorpay plan.
-    rate_card: dict[str, float] = field(default_factory=lambda: {
-        "upi": 2.0, "card": 2.0, "netbanking": 2.0, "wallet": 2.0, "emi": 3.0, "international": 3.0,
-    })
+    rate_card: dict[str, float] = field(
+        default_factory=lambda: {
+            "upi": 2.0,
+            "card": 2.0,
+            "netbanking": 2.0,
+            "wallet": 2.0,
+            "emi": 3.0,
+            "international": 3.0,
+        }
+    )
     default_rate: float = 2.0
-    fee_tolerance_pct: float = 0.05     # allowed excess, in percentage points
+    fee_tolerance_pct: float = 0.05  # allowed excess, in percentage points
     gst_rate: float = 0.18
-    settlement_days: int = 2            # T+2 default settlement cycle
-    grace_days: int = 2                 # extra slack before calling a payment "unsettled"
-    date_window_days: int = 2           # settlements this far before the statement start are still checked
-    max_lag_days: int = 4               # bank may post a payout up to this many days after settlement
-    max_pair_gap: float = 0.25          # pass-3 pairing: amounts may differ by up to 25%
+    settlement_days: int = 2  # T+2 default settlement cycle
+    grace_days: int = 2  # extra slack before calling a payment "unsettled"
+    date_window_days: int = 2  # settlements this far before the statement start are still checked
+    max_lag_days: int = 4  # bank may post a payout up to this many days after settlement
+    max_pair_gap: float = 0.25  # pass-3 pairing: amounts may differ by up to 25%
     payout_keywords: tuple[str, ...] = ("RAZORPAY",)
     money_tolerance: float = 0.01
 
@@ -89,13 +96,19 @@ def match_settlements(report: pd.DataFrame, bank: pd.DataFrame, cfg: Config):
     """Return (settlements frame with match info, list of exceptions, set of used bank rows)."""
     settled = report[report["settled"] & (report["settlement_id"] != "")]
     groups = settled.groupby("settlement_id", sort=False)
-    settlements = pd.DataFrame({
-        "settlement_id": list(groups.groups.keys()),
-        "utr": groups["settlement_utr"].first().values,
-        "settled_at": groups["settled_at"].first().values,
-        "net": (groups["credit"].sum() - groups["debit"].sum()).round(2).values,
-        "entities": groups.size().values,
-    }).sort_values("settled_at", kind="stable").reset_index(drop=True)
+    settlements = (
+        pd.DataFrame(
+            {
+                "settlement_id": list(groups.groups.keys()),
+                "utr": groups["settlement_utr"].first().values,
+                "settled_at": groups["settled_at"].first().values,
+                "net": (groups["credit"].sum() - groups["debit"].sum()).round(2).values,
+                "entities": groups.size().values,
+            }
+        )
+        .sort_values("settled_at", kind="stable")
+        .reset_index(drop=True)
+    )
     # A settlement whose refunds exceed its payments pays nothing; Razorpay carries the
     # negative balance into the next payout, which then arrives smaller.
     expected, carried, carry = [], [], 0.0
@@ -158,9 +171,12 @@ def match_settlements(report: pd.DataFrame, bank: pd.DataFrame, cfg: Config):
     for idx, s in settlements.iterrows():
         if s["status"] or s["match_method"]:
             continue
-        candidates = [i for i in open_payouts()
-                      if abs(credits.at[i, "amount"] - s["expected"]) <= cfg.money_tolerance
-                      and in_lag(credits.at[i, "date"], s["settled_at"])]
+        candidates = [
+            i
+            for i in open_payouts()
+            if abs(credits.at[i, "amount"] - s["expected"]) <= cfg.money_tolerance
+            and in_lag(credits.at[i, "date"], s["settled_at"])
+        ]
         if candidates:
             best = min(candidates, key=lambda i: _days(credits.at[i, "date"], s["settled_at"]))
             record(idx, best, "amount+date")
@@ -186,15 +202,29 @@ def match_settlements(report: pd.DataFrame, bank: pd.DataFrame, cfg: Config):
         if not s["match_method"]:
             settlements.at[idx, "status"] = "missing"
             near_end = (end - s["settled_at"]).days < cfg.max_lag_days
-            exceptions.append(Exception_(
-                "missing_payout", "medium" if near_end else "high", s["settlement_id"], float(s["expected"]),
-                TITLES["missing_payout"],
-                f"Settlement {s['settlement_id']} of Rs {s['expected']:,.2f} (UTR {s['utr'] or 'n/a'}, "
-                f"{s['settled_at']}) has no matching credit in the statement."
-                + (" It was settled in the last days of the statement, so it may simply post in the next one." if near_end else ""),
-                "Raise a ticket with Razorpay support quoting the settlement id and UTR; ask your bank to trace the UTR.",
-                {"utr": s["utr"], "settled_at": str(s["settled_at"]), "expected": float(s["expected"]), "carried_in": float(s["carried_in"])},
-            ))
+            exceptions.append(
+                Exception_(
+                    "missing_payout",
+                    "medium" if near_end else "high",
+                    s["settlement_id"],
+                    float(s["expected"]),
+                    TITLES["missing_payout"],
+                    f"Settlement {s['settlement_id']} of Rs {s['expected']:,.2f} (UTR {s['utr'] or 'n/a'}, "
+                    f"{s['settled_at']}) has no matching credit in the statement."
+                    + (
+                        " It was settled in the last days of the statement, so it may simply post in the next one."
+                        if near_end
+                        else ""
+                    ),
+                    "Raise a ticket with Razorpay support quoting the settlement id and UTR; ask your bank to trace the UTR.",
+                    {
+                        "utr": s["utr"],
+                        "settled_at": str(s["settled_at"]),
+                        "expected": float(s["expected"]),
+                        "carried_in": float(s["carried_in"]),
+                    },
+                )
+            )
             continue
         diff = round(float(s["bank_amount"]) - float(s["expected"]), 2)
         if abs(diff) <= cfg.money_tolerance:
@@ -202,25 +232,42 @@ def match_settlements(report: pd.DataFrame, bank: pd.DataFrame, cfg: Config):
         else:
             kind = "short_credit" if diff < 0 else "excess_credit"
             settlements.at[idx, "status"] = kind
-            exceptions.append(Exception_(
-                kind, "high" if diff < 0 else "low", s["settlement_id"], abs(diff), TITLES[kind],
-                f"Settlement {s['settlement_id']} should be Rs {s['expected']:,.2f}; bank shows Rs "
-                f"{s['bank_amount']:,.2f} on {s['bank_date']} (difference Rs {diff:,.2f}).",
-                "Check for an adjustment or hold deducted outside the report; if none, dispute with Razorpay.",
-                {"utr": s["utr"], "expected": float(s["expected"]), "carried_in": float(s["carried_in"]), "bank_amount": float(s["bank_amount"]), "matched_by": s["match_method"]},
-            ))
+            exceptions.append(
+                Exception_(
+                    kind,
+                    "high" if diff < 0 else "low",
+                    s["settlement_id"],
+                    abs(diff),
+                    TITLES[kind],
+                    f"Settlement {s['settlement_id']} should be Rs {s['expected']:,.2f}; bank shows Rs "
+                    f"{s['bank_amount']:,.2f} on {s['bank_date']} (difference Rs {diff:,.2f}).",
+                    "Check for an adjustment or hold deducted outside the report; if none, dispute with Razorpay.",
+                    {
+                        "utr": s["utr"],
+                        "expected": float(s["expected"]),
+                        "carried_in": float(s["carried_in"]),
+                        "bank_amount": float(s["bank_amount"]),
+                        "matched_by": s["match_method"],
+                    },
+                )
+            )
 
     for i, r in credits.iterrows():
         if i in used or not is_payout[i]:
             continue
         utrs = extract_utr_candidates(f"{r['description']} {r['ref']}")
-        exceptions.append(Exception_(
-            "unknown_credit", "low", utrs[0] if utrs else f"bank-row-{int(r['row'])}", float(r["amount"]),
-            TITLES["unknown_credit"],
-            f"Rs {r['amount']:,.2f} on {r['date']} ('{r['description'][:60]}') is not in the settlement report.",
-            "Re-export the settlement report for a wider date range; it may belong to another account or period.",
-            {"description": r["description"], "date": str(r["date"])},
-        ))
+        exceptions.append(
+            Exception_(
+                "unknown_credit",
+                "low",
+                utrs[0] if utrs else f"bank-row-{int(r['row'])}",
+                float(r["amount"]),
+                TITLES["unknown_credit"],
+                f"Rs {r['amount']:,.2f} on {r['date']} ('{r['description'][:60]}') is not in the settlement report.",
+                "Re-export the settlement report for a wider date range; it may belong to another account or period.",
+                {"description": r["description"], "date": str(r["date"])},
+            )
+        )
     return settlements, exceptions, used
 
 
@@ -232,30 +279,53 @@ def check_payments(report: pd.DataFrame, cfg: Config, as_of: date) -> list[Excep
         expected_rate = cfg.rate_card.get(p["method"], cfg.default_rate)
         if amount > 0 and fee / amount * 100 > expected_rate + cfg.fee_tolerance_pct:
             excess = round((fee - amount * expected_rate / 100) * (1 + cfg.gst_rate), 2)
-            out.append(Exception_(
-                "fee_anomaly", "medium", p["entity_id"], excess, TITLES["fee_anomaly"],
-                f"{p['entity_id']} ({p['method'] or 'unknown method'}): fee Rs {fee:.2f} on Rs {amount:,.2f} is "
-                f"{fee / amount * 100:.2f}%, vs {expected_rate:.2f}% on your rate card.",
-                "Check whether this was an international/corporate card; if not, ask Razorpay for a fee reversal.",
-                {"fee": fee, "amount": amount, "rate_pct": round(fee / amount * 100, 3), "expected_pct": expected_rate},
-            ))
+            out.append(
+                Exception_(
+                    "fee_anomaly",
+                    "medium",
+                    p["entity_id"],
+                    excess,
+                    TITLES["fee_anomaly"],
+                    f"{p['entity_id']} ({p['method'] or 'unknown method'}): fee Rs {fee:.2f} on Rs {amount:,.2f} is "
+                    f"{fee / amount * 100:.2f}%, vs {expected_rate:.2f}% on your rate card.",
+                    "Check whether this was an international/corporate card; if not, ask Razorpay for a fee reversal.",
+                    {
+                        "fee": fee,
+                        "amount": amount,
+                        "rate_pct": round(fee / amount * 100, 3),
+                        "expected_pct": expected_rate,
+                    },
+                )
+            )
         if fee > 0 and abs(tax - fee * cfg.gst_rate) > 0.02:
-            out.append(Exception_(
-                "gst_mismatch", "low", p["entity_id"], round(abs(tax - fee * cfg.gst_rate), 2), TITLES["gst_mismatch"],
-                f"{p['entity_id']}: GST Rs {tax:.2f} on fee Rs {fee:.2f} (expected Rs {fee * cfg.gst_rate:.2f}).",
-                "Flag to your accountant before filing; the GST invoice from Razorpay should match.",
-                {"fee": fee, "tax": tax},
-            ))
+            out.append(
+                Exception_(
+                    "gst_mismatch",
+                    "low",
+                    p["entity_id"],
+                    round(abs(tax - fee * cfg.gst_rate), 2),
+                    TITLES["gst_mismatch"],
+                    f"{p['entity_id']}: GST Rs {tax:.2f} on fee Rs {fee:.2f} (expected Rs {fee * cfg.gst_rate:.2f}).",
+                    "Flag to your accountant before filing; the GST invoice from Razorpay should match.",
+                    {"fee": fee, "tax": tax},
+                )
+            )
         due = p["created_at"] and p["created_at"] <= as_of - timedelta(days=cfg.settlement_days + cfg.grace_days)
         if not p["settled"] and not p["on_hold"] and due:
             expected_credit = round(amount - fee - tax, 2)
-            out.append(Exception_(
-                "unsettled_payment", "high", p["entity_id"], expected_credit, TITLES["unsettled_payment"],
-                f"{p['entity_id']} for Rs {amount:,.2f} was captured on {p['created_at']} and is not settled "
-                f"as of {as_of} (beyond T+{cfg.settlement_days}).",
-                "Check the payment in the Razorpay dashboard; if it is not on hold, ask support why it missed settlement.",
-                {"created_at": str(p["created_at"]), "amount": amount},
-            ))
+            out.append(
+                Exception_(
+                    "unsettled_payment",
+                    "high",
+                    p["entity_id"],
+                    expected_credit,
+                    TITLES["unsettled_payment"],
+                    f"{p['entity_id']} for Rs {amount:,.2f} was captured on {p['created_at']} and is not settled "
+                    f"as of {as_of} (beyond T+{cfg.settlement_days}).",
+                    "Check the payment in the Razorpay dashboard; if it is not on hold, ask support why it missed settlement.",
+                    {"created_at": str(p["created_at"]), "amount": amount},
+                )
+            )
     return out
 
 
@@ -273,55 +343,93 @@ def check_orders(report: pd.DataFrame, orders: pd.DataFrame, cfg: Config) -> lis
         collected = float(pays["amount"].sum())
         back = float(refunded.get(ref, 0.0))
         if status == "paid" and pays.empty:
-            out.append(Exception_(
-                "order_without_payment", "high", ref, amount, TITLES["order_without_payment"],
-                f"Order {ref} (Rs {amount:,.2f}) is '{o['status_raw'] or 'paid'}' in your system but no Razorpay payment carries this receipt.",
-                "Check whether the customer paid by cash/UPI directly, or whether the order was marked paid by mistake.",
-                {"customer": o["customer"]},
-            ))
+            out.append(
+                Exception_(
+                    "order_without_payment",
+                    "high",
+                    ref,
+                    amount,
+                    TITLES["order_without_payment"],
+                    f"Order {ref} (Rs {amount:,.2f}) is '{o['status_raw'] or 'paid'}' in your system but no Razorpay payment carries this receipt.",
+                    "Check whether the customer paid by cash/UPI directly, or whether the order was marked paid by mistake.",
+                    {"customer": o["customer"]},
+                )
+            )
         elif len(pays) > 1 and collected - back > amount + cfg.money_tolerance:
             extra = round(collected - back - amount, 2)
-            out.append(Exception_(
-                "duplicate_payment", "high", ref, extra, TITLES["duplicate_payment"],
-                f"Order {ref} (Rs {amount:,.2f}) has {len(pays)} captured payments totalling Rs {collected:,.2f}: "
-                f"{', '.join(pays['entity_id'])}.",
-                "Refund the extra payment from the dashboard before the customer raises a chargeback.",
-                {"payments": list(pays["entity_id"]), "collected": collected},
-            ))
+            out.append(
+                Exception_(
+                    "duplicate_payment",
+                    "high",
+                    ref,
+                    extra,
+                    TITLES["duplicate_payment"],
+                    f"Order {ref} (Rs {amount:,.2f}) has {len(pays)} captured payments totalling Rs {collected:,.2f}: "
+                    f"{', '.join(pays['entity_id'])}.",
+                    "Refund the extra payment from the dashboard before the customer raises a chargeback.",
+                    {"payments": list(pays["entity_id"]), "collected": collected},
+                )
+            )
         elif status == "cancelled" and collected - back > cfg.money_tolerance:
             owed = round(collected - back, 2)
-            out.append(Exception_(
-                "paid_on_cancelled_order", "high", ref, owed, TITLES["paid_on_cancelled_order"],
-                f"Order {ref} is cancelled but Rs {owed:,.2f} collected via {', '.join(pays['entity_id'])} was never refunded.",
-                "Issue the refund (or reinstate the order) and tell the customer.",
-                {"payments": list(pays["entity_id"]), "refunded": back},
-            ))
+            out.append(
+                Exception_(
+                    "paid_on_cancelled_order",
+                    "high",
+                    ref,
+                    owed,
+                    TITLES["paid_on_cancelled_order"],
+                    f"Order {ref} is cancelled but Rs {owed:,.2f} collected via {', '.join(pays['entity_id'])} was never refunded.",
+                    "Issue the refund (or reinstate the order) and tell the customer.",
+                    {"payments": list(pays["entity_id"]), "refunded": back},
+                )
+            )
         elif status == "paid" and len(pays) == 1 and abs(collected - amount) > cfg.money_tolerance:
-            out.append(Exception_(
-                "amount_mismatch_order", "medium", ref, round(abs(collected - amount), 2), TITLES["amount_mismatch_order"],
-                f"Order {ref} is Rs {amount:,.2f} in your system but Rs {collected:,.2f} was collected.",
-                "Fix the order total or collect/refund the difference.",
-                {"order_amount": amount, "collected": collected},
-            ))
+            out.append(
+                Exception_(
+                    "amount_mismatch_order",
+                    "medium",
+                    ref,
+                    round(abs(collected - amount), 2),
+                    TITLES["amount_mismatch_order"],
+                    f"Order {ref} is Rs {amount:,.2f} in your system but Rs {collected:,.2f} was collected.",
+                    "Fix the order total or collect/refund the difference.",
+                    {"order_amount": amount, "collected": collected},
+                )
+            )
 
     for ref, group in pays_by:
         if ref and ref not in known:
-            out.append(Exception_(
-                "payment_without_order", "medium", ref, float(group["amount"].sum()), TITLES["payment_without_order"],
-                f"Razorpay payment(s) {', '.join(group['entity_id'])} reference receipt {ref}, which is not in your orders export.",
-                "Check the orders export date range, or link the payment to the right order.",
-                {"payments": list(group["entity_id"])},
-            ))
+            out.append(
+                Exception_(
+                    "payment_without_order",
+                    "medium",
+                    ref,
+                    float(group["amount"].sum()),
+                    TITLES["payment_without_order"],
+                    f"Razorpay payment(s) {', '.join(group['entity_id'])} reference receipt {ref}, which is not in your orders export.",
+                    "Check the orders export date range, or link the payment to the right order.",
+                    {"payments": list(group["entity_id"])},
+                )
+            )
     return out
 
 
-def reconcile(report: pd.DataFrame, bank: pd.DataFrame | None = None, orders: pd.DataFrame | None = None,
-              cfg: Config | None = None, as_of: date | None = None) -> Result:
+def reconcile(
+    report: pd.DataFrame,
+    bank: pd.DataFrame | None = None,
+    orders: pd.DataFrame | None = None,
+    cfg: Config | None = None,
+    as_of: date | None = None,
+) -> Result:
     cfg = cfg or Config()
-    bank = bank if bank is not None else pd.DataFrame(columns=["date", "description", "ref", "amount", "balance", "row"])
+    bank = (
+        bank if bank is not None else pd.DataFrame(columns=["date", "description", "ref", "amount", "balance", "row"])
+    )
     notes: list[str] = []
     if as_of is None:
-        as_of = bank["date"].max() if not bank.empty else max(d for d in report["created_at"] if d)
+        dates = [d for d in report["created_at"] if d]
+        as_of = bank["date"].max() if not bank.empty else max(dates) if dates else date.today()
 
     settlements, exceptions, used = match_settlements(report, bank, cfg)
     exceptions += check_payments(report, cfg, as_of)
@@ -332,13 +440,17 @@ def reconcile(report: pd.DataFrame, bank: pd.DataFrame | None = None, orders: pd
     in_period = settlements[settlements["status"].isin(["matched", "short_credit", "excess_credit", "missing"])]
     after = int((settlements["status"] == "after_statement").sum())
     if after:
-        notes.append(f"{after} settlement(s) dated after the statement ends were skipped; check them in next month's statement.")
+        notes.append(
+            f"{after} settlement(s) dated after the statement ends were skipped; check them in next month's statement."
+        )
     negative = int((settlements["status"] == "no_payout_expected").sum())
     if negative:
         notes.append(f"{negative} settlement(s) had refunds larger than payments, so no payout was expected for them.")
     weak = int((settlements["match_method"] == "amount+date").sum())
     if weak:
-        notes.append(f"{weak} payout(s) matched on amount and date because the bank narration was cut off before the UTR.")
+        notes.append(
+            f"{weak} payout(s) matched on amount and date because the bank narration was cut off before the UTR."
+        )
 
     payments = report[report["type"] == "payment"]
     by_type: dict[str, dict] = {}

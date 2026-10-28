@@ -27,8 +27,28 @@ MERCHANT = "FIXLY HOME SERVICES"
 PRICES = [199, 249, 299, 349, 399, 449, 499, 599, 699, 799, 999, 1299, 1499, 1999, 2499, 3499]
 METHODS = [("upi", 0.60), ("card", 0.25), ("netbanking", 0.10), ("wallet", 0.05)]
 TECHS = ["RAMESH ELECTRICALS", "SURESH PLUMBING", "LAKSHMI CLEANING", "ANIL AC REPAIR", "MOHAN CARPENTRY"]
-CUSTOMERS = ["Priya", "Rahul", "Ananya", "Vikram", "Sneha", "Arjun", "Kavya", "Rohit", "Divya", "Karthik",
-             "Meera", "Aditya", "Pooja", "Sai", "Harini", "Naveen", "Lakshmi", "Varun", "Swathi", "Teja"]
+CUSTOMERS = [
+    "Priya",
+    "Rahul",
+    "Ananya",
+    "Vikram",
+    "Sneha",
+    "Arjun",
+    "Kavya",
+    "Rohit",
+    "Divya",
+    "Karthik",
+    "Meera",
+    "Aditya",
+    "Pooja",
+    "Sai",
+    "Harini",
+    "Naveen",
+    "Lakshmi",
+    "Varun",
+    "Swathi",
+    "Teja",
+]
 
 
 def _id(rng: random.Random, prefix: str, n: int = 14) -> str:
@@ -45,12 +65,7 @@ def _settle_date(d: date, days: int = 2) -> date:
 
 
 def _method(rng: random.Random) -> str:
-    x, acc = rng.random(), 0.0
-    for name, p in METHODS:
-        acc += p
-        if x <= acc:
-            return name
-    return METHODS[-1][0]
+    return rng.choices([m for m, _ in METHODS], weights=[w for _, w in METHODS])[0]
 
 
 def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, hard: bool = False) -> dict:
@@ -58,7 +73,7 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
     rng = random.Random(seed)
     noise = random.Random(seed * 7919 + 1)  # separate stream, so hard mode keeps the same base data
     start = date(year, month, 1)
-    end = (date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1))
+    end = date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
     days = (end - start).days + 1
     truth: list[dict] = []
 
@@ -66,16 +81,36 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
     orders, payments = [], []
     for i in range(n_orders):
         created = datetime.combine(start + timedelta(days=rng.randrange(days)), datetime.min.time()) + timedelta(
-            hours=rng.randint(8, 21), minutes=rng.randint(0, 59), seconds=rng.randint(0, 59))
+            hours=rng.randint(8, 21), minutes=rng.randint(0, 59), seconds=rng.randint(0, 59)
+        )
         amount = float(rng.choice(PRICES))
         ref = f"FX{seed:02d}{i:04d}"
-        orders.append({"ref": ref, "amount": amount, "status": "Completed", "created": created,
-                       "customer": rng.choice(CUSTOMERS), "service": rng.choice(["Electrician", "Plumber", "Cleaning", "AC Service", "Carpenter"])})
+        orders.append(
+            {
+                "ref": ref,
+                "amount": amount,
+                "status": "Completed",
+                "created": created,
+                "customer": rng.choice(CUSTOMERS),
+                "service": rng.choice(["Electrician", "Plumber", "Cleaning", "AC Service", "Carpenter"]),
+            }
+        )
         method = _method(rng)
         fee = round(amount * 2.0 / 100, 2)
-        payments.append({"id": _id(rng, "pay"), "receipt": ref, "order_id": _id(rng, "order"), "amount": amount,
-                         "fee": fee, "tax": round(fee * 0.18, 2), "method": method, "created": created,
-                         "settled": True, "on_hold": False})
+        payments.append(
+            {
+                "id": _id(rng, "pay"),
+                "receipt": ref,
+                "order_id": _id(rng, "order"),
+                "amount": amount,
+                "fee": fee,
+                "tax": round(fee * 0.18, 2),
+                "method": method,
+                "created": created,
+                "settled": True,
+                "on_hold": False,
+            }
+        )
 
     by_ref = {p["receipt"]: p for p in payments}
     order_by_ref = {o["ref"]: o for o in orders}
@@ -89,8 +124,15 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
         p = by_ref[ref]
         full = k < 7
         amt = p["amount"] if full else round(p["amount"] * 0.3, 2)
-        refunds.append({"id": _id(rng, "rfnd"), "receipt": ref, "payment": p["id"], "amount": amt,
-                        "created": p["created"] + timedelta(days=rng.randint(1, 4), hours=2)})
+        refunds.append(
+            {
+                "id": _id(rng, "rfnd"),
+                "receipt": ref,
+                "payment": p["id"],
+                "amount": amt,
+                "created": p["created"] + timedelta(days=rng.randint(1, 4), hours=2),
+            }
+        )
         if full:
             order_by_ref[ref]["status"] = "Cancelled"
 
@@ -150,23 +192,52 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
 
     for p in payments:
         s = p.get("settlement")
-        report_rows.append({
-            "entity_id": p["id"], "type": "payment", "debit": "0.00", "credit": f"{p['amount'] - p['fee'] - p['tax']:.2f}" if p["settled"] else "0.00",
-            "amount": f"{p['amount']:.2f}", "currency": "INR", "fee": f"{p['fee']:.2f}", "tax": f"{p['tax']:.2f}",
-            "on_hold": int(p["on_hold"]), "settled": int(p["settled"]), "created_at": p["created"].strftime("%d/%m/%Y %H:%M:%S"),
-            "settled_at": s[2].strftime("%d/%m/%Y 09:15:00") if s else "", "settlement_id": s[0] if s else "",
-            "settlement_utr": s[1] if s else "", "description": "", "order_id": p["order_id"],
-            "order_receipt": p["receipt"], "method": p["method"],
-        })
+        report_rows.append(
+            {
+                "entity_id": p["id"],
+                "type": "payment",
+                "debit": "0.00",
+                "credit": f"{p['amount'] - p['fee'] - p['tax']:.2f}" if p["settled"] else "0.00",
+                "amount": f"{p['amount']:.2f}",
+                "currency": "INR",
+                "fee": f"{p['fee']:.2f}",
+                "tax": f"{p['tax']:.2f}",
+                "on_hold": int(p["on_hold"]),
+                "settled": int(p["settled"]),
+                "created_at": p["created"].strftime("%d/%m/%Y %H:%M:%S"),
+                "settled_at": s[2].strftime("%d/%m/%Y 09:15:00") if s else "",
+                "settlement_id": s[0] if s else "",
+                "settlement_utr": s[1] if s else "",
+                "description": "",
+                "order_id": p["order_id"],
+                "order_receipt": p["receipt"],
+                "method": p["method"],
+            }
+        )
     for r in refunds:
         s = r["settlement"]
-        report_rows.append({
-            "entity_id": r["id"], "type": "refund", "debit": f"{r['amount']:.2f}", "credit": "0.00",
-            "amount": f"{r['amount']:.2f}", "currency": "INR", "fee": "0.00", "tax": "0.00", "on_hold": 0, "settled": 1,
-            "created_at": r["created"].strftime("%d/%m/%Y %H:%M:%S"), "settled_at": s[2].strftime("%d/%m/%Y 09:15:00"),
-            "settlement_id": s[0], "settlement_utr": s[1], "description": f"Refund for {r['payment']}",
-            "order_id": by_ref[r["receipt"]]["order_id"], "order_receipt": r["receipt"], "method": by_ref[r["receipt"]]["method"],
-        })
+        report_rows.append(
+            {
+                "entity_id": r["id"],
+                "type": "refund",
+                "debit": f"{r['amount']:.2f}",
+                "credit": "0.00",
+                "amount": f"{r['amount']:.2f}",
+                "currency": "INR",
+                "fee": "0.00",
+                "tax": "0.00",
+                "on_hold": 0,
+                "settled": 1,
+                "created_at": r["created"].strftime("%d/%m/%Y %H:%M:%S"),
+                "settled_at": s[2].strftime("%d/%m/%Y 09:15:00"),
+                "settlement_id": s[0],
+                "settlement_utr": s[1],
+                "description": f"Refund for {r['payment']}",
+                "order_id": by_ref[r["receipt"]]["order_id"],
+                "order_receipt": r["receipt"],
+                "method": by_ref[r["receipt"]]["method"],
+            }
+        )
     report_rows.sort(key=lambda r: datetime.strptime(r["created_at"], "%d/%m/%Y %H:%M:%S"))
 
     # ---- bank: payouts in the statement month, with problems
@@ -184,7 +255,9 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
         if s["date"] > end or s in missing or s["payout"] <= 0:  # refunds > payments -> no payout that day
             continue
         amount = round(s["payout"] - short_by.get(s["id"], 0.0), 2)
-        when = datetime.combine(s["date"], datetime.min.time()) + timedelta(hours=rng.randint(10, 15), minutes=rng.randint(0, 59))
+        when = datetime.combine(s["date"], datetime.min.time()) + timedelta(
+            hours=rng.randint(10, 15), minutes=rng.randint(0, 59)
+        )
         cut = s in truncated
         if hard:
             when += timedelta(days=noise.choices([0, 1, 2, 3], weights=[60, 25, 10, 5])[0])
@@ -193,21 +266,49 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
                 continue  # posted after the statement closed
         txns.append((when, "payout", {"utr": None if cut else s["utr"]}, amount))
     stray_utr = _utr(rng, start + timedelta(days=17))
-    txns.append((datetime.combine(start + timedelta(days=17), datetime.min.time()) + timedelta(hours=13), "payout",
-                 {"utr": stray_utr}, float(rng.randint(2000, 6000))))
+    txns.append(
+        (
+            datetime.combine(start + timedelta(days=17), datetime.min.time()) + timedelta(hours=13),
+            "payout",
+            {"utr": stray_utr},
+            float(rng.randint(2000, 6000)),
+        )
+    )
     truth.append({"type": "unknown_credit", "key": stray_utr})
 
     for d in range(days):
         day = start + timedelta(days=d)
         for _ in range(rng.randint(0, 3)):
-            txns.append((datetime.combine(day, datetime.min.time()) + timedelta(hours=rng.randint(9, 20), minutes=rng.randint(0, 59)),
-                         "upi_dr", {"name": rng.choice(TECHS), "ref": str(rng.randint(10**11, 10**12 - 1))}, -float(rng.randint(250, 2200))))
+            txns.append(
+                (
+                    datetime.combine(day, datetime.min.time())
+                    + timedelta(hours=rng.randint(9, 20), minutes=rng.randint(0, 59)),
+                    "upi_dr",
+                    {"name": rng.choice(TECHS), "ref": str(rng.randint(10**11, 10**12 - 1))},
+                    -float(rng.randint(250, 2200)),
+                )
+            )
     for d in rng.sample(range(days), 6):
-        txns.append((datetime.combine(start + timedelta(days=d), datetime.min.time()) + timedelta(hours=16), "upi_cr",
-                     {"name": rng.choice(CUSTOMERS).upper(), "ref": str(rng.randint(10**11, 10**12 - 1))}, float(rng.choice(PRICES))))
-    txns.append((datetime.combine(start + timedelta(days=4), datetime.min.time()) + timedelta(hours=11), "rent", {}, -25000.0))
+        txns.append(
+            (
+                datetime.combine(start + timedelta(days=d), datetime.min.time()) + timedelta(hours=16),
+                "upi_cr",
+                {"name": rng.choice(CUSTOMERS).upper(), "ref": str(rng.randint(10**11, 10**12 - 1))},
+                float(rng.choice(PRICES)),
+            )
+        )
+    txns.append(
+        (datetime.combine(start + timedelta(days=4), datetime.min.time()) + timedelta(hours=11), "rent", {}, -25000.0)
+    )
     for k in range(3):
-        txns.append((datetime.combine(start, datetime.min.time()) + timedelta(hours=10, minutes=k), "salary", {"k": k}, -15000.0))
+        txns.append(
+            (
+                datetime.combine(start, datetime.min.time()) + timedelta(hours=10, minutes=k),
+                "salary",
+                {"k": k},
+                -15000.0,
+            )
+        )
     txns.append((datetime.combine(end, datetime.min.time()) + timedelta(hours=23), "charges", {}, -118.0))
     txns.sort(key=lambda t: t[0])
 
@@ -222,15 +323,25 @@ def build(seed: int = 7, year: int = 2026, month: int = 9, n_orders: int = 320, 
 
 # ------------------------------------------------------------------ bank narrations per layout
 
+
 def _narration(fmt: str, kind: str, info: dict) -> tuple[str, str]:
     utr = info.get("utr")
     if kind == "payout":
         if fmt == "a":
-            return (f"NEFT CR-UTIB0000247-RAZORPAY SOFTWARE PRIVATE LIMITED-{MERCHANT}-{utr}" if utr
-                    else "NEFT CR-UTIB0000247-RAZORPAY SOFTWARE PRIVATE LIM", utr or "0000000000000000")
+            return (
+                f"NEFT CR-UTIB0000247-RAZORPAY SOFTWARE PRIVATE LIMITED-{MERCHANT}-{utr}"
+                if utr
+                else "NEFT CR-UTIB0000247-RAZORPAY SOFTWARE PRIVATE LIM",
+                utr or "0000000000000000",
+            )
         if fmt == "b":
             return (f"NEFT/{utr}/RAZORPAY SOFTWARE PVT LTD" if utr else "NEFT/RAZORPAY SOFTWARE PVT", utr or "")
-        return (f"BY TRANSFER-NEFT*UTIB0000247*{utr}*RAZORPAY SOFTWA" if utr else "BY TRANSFER-NEFT*UTIB0000247*RAZORPAY SOFTWA", "")
+        return (
+            f"BY TRANSFER-NEFT*UTIB0000247*{utr}*RAZORPAY SOFTWA"
+            if utr
+            else "BY TRANSFER-NEFT*UTIB0000247*RAZORPAY SOFTWA",
+            "",
+        )
     if kind == "upi_dr":
         return f"UPI/DR/{info['ref']}/{info['name']}/YESB/payout", info["ref"]
     if kind == "upi_cr":
@@ -255,21 +366,51 @@ def write(data: dict, out: Path) -> None:
         w = csv.writer(f)
         w.writerow(["Booking ID", "Customer", "Service", "Amount (₹)", "Order Status", "Booked On"])
         for o in data["orders"]:
-            w.writerow([o["ref"], o["customer"], o["service"], f"{o['amount']:.0f}", o["status"], o["created"].strftime("%d-%m-%Y %H:%M")])
+            w.writerow(
+                [
+                    o["ref"],
+                    o["customer"],
+                    o["service"],
+                    f"{o['amount']:.0f}",
+                    o["status"],
+                    o["created"].strftime("%d-%m-%Y %H:%M"),
+                ]
+            )
 
     from recon.parse import inr  # noqa: E402  (format amounts the Indian way)
 
     with open(out / "bank_format_a.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow([f"{MERCHANT}"])
-        w.writerow(["Account No :", "XXXXXXXX4417", "", "Statement From :", start.strftime("%d/%m/%y"), "To :", end.strftime("%d/%m/%y")])
+        w.writerow(
+            [
+                "Account No :",
+                "XXXXXXXX4417",
+                "",
+                "Statement From :",
+                start.strftime("%d/%m/%y"),
+                "To :",
+                end.strftime("%d/%m/%y"),
+            ]
+        )
         w.writerow([])
-        w.writerow(["Date", "Narration", "Chq./Ref.No.", "Value Dt", "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"])
+        w.writerow(
+            ["Date", "Narration", "Chq./Ref.No.", "Value Dt", "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"]
+        )
         for t in data["bank"]:
             text, ref = _narration("a", t["kind"], t["info"])
             d = t["when"].strftime("%d/%m/%y")
-            w.writerow([d, text, ref, d, f"{-t['amount']:.2f}" if t["amount"] < 0 else "",
-                        f"{t['amount']:.2f}" if t["amount"] > 0 else "", f"{t['balance']:.2f}"])
+            w.writerow(
+                [
+                    d,
+                    text,
+                    ref,
+                    d,
+                    f"{-t['amount']:.2f}" if t["amount"] < 0 else "",
+                    f"{t['amount']:.2f}" if t["amount"] > 0 else "",
+                    f"{t['balance']:.2f}",
+                ]
+            )
         w.writerow([])
         w.writerow(["*** This is a computer generated statement ***"])
 
@@ -285,7 +426,17 @@ def write(data: dict, out: Path) -> None:
     for t in data["bank"]:
         text, ref = _narration("b", t["kind"], t["info"])
         d = t["when"].strftime("%d-%b-%Y")
-        ws.append([d, d, text, ref, inr(-t["amount"]) if t["amount"] < 0 else "", inr(t["amount"]) if t["amount"] > 0 else "", inr(t["balance"])])
+        ws.append(
+            [
+                d,
+                d,
+                text,
+                ref,
+                inr(-t["amount"]) if t["amount"] < 0 else "",
+                inr(t["amount"]) if t["amount"] > 0 else "",
+                inr(t["balance"]),
+            ]
+        )
     wb.save(out / "bank_format_b.xlsx")
 
     with open(out / "bank_format_c.csv", "w", newline="") as f:
@@ -293,8 +444,15 @@ def write(data: dict, out: Path) -> None:
         w.writerow(["Txn Posted Date", "Transaction Remarks", "Amount", "Cr/Dr", "Balance"])
         for t in data["bank"]:
             text, _ = _narration("c", t["kind"], t["info"])
-            w.writerow([t["when"].strftime("%Y-%m-%d %H:%M:%S"), text, f"{abs(t['amount']):.2f}",
-                        "CR" if t["amount"] > 0 else "DR", f"{t['balance']:.2f}"])
+            w.writerow(
+                [
+                    t["when"].strftime("%Y-%m-%d %H:%M:%S"),
+                    text,
+                    f"{abs(t['amount']):.2f}",
+                    "CR" if t["amount"] > 0 else "DR",
+                    f"{t['balance']:.2f}",
+                ]
+            )
 
     with open(out / "bank_format_d.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -302,8 +460,16 @@ def write(data: dict, out: Path) -> None:
         w.writerow(["लेनदेन तिथि", "विवरण", "संदर्भ संख्या", "नामे", "जमा", "शेष"])
         for t in reversed(data["bank"]):
             text, ref = _narration("b", t["kind"], t["info"])
-            w.writerow([t["when"].strftime("%d/%m/%Y"), text, ref, f"{-t['amount']:.2f}" if t["amount"] < 0 else "",
-                        f"{t['amount']:.2f}" if t["amount"] > 0 else "", f"{t['balance']:.2f}"])
+            w.writerow(
+                [
+                    t["when"].strftime("%d/%m/%Y"),
+                    text,
+                    ref,
+                    f"{-t['amount']:.2f}" if t["amount"] < 0 else "",
+                    f"{t['amount']:.2f}" if t["amount"] > 0 else "",
+                    f"{t['balance']:.2f}",
+                ]
+            )
 
     (out / "ground_truth.json").write_text(json.dumps(data["truth"], indent=2))
 
@@ -316,7 +482,9 @@ def main() -> None:
     args = parser.parse_args()
     data = build(args.seed, hard=args.hard)
     write(data, args.out)
-    print(f"wrote {args.out} ({len(data['report'])} report rows, {len(data['bank'])} bank rows, {len(data['truth'])} injected problems)")
+    print(
+        f"wrote {args.out} ({len(data['report'])} report rows, {len(data['bank'])} bank rows, {len(data['truth'])} injected problems)"
+    )
 
 
 if __name__ == "__main__":
