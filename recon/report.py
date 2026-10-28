@@ -14,7 +14,7 @@ from html import escape
 
 from .engine import Result
 from .llm import LLMClient, LLMError
-from .look import CSS, SEVERITY_LABEL, issues_html, tiles_html
+from .look import CSS, SEVERITY_LABEL, issues_html, mark_svg, tiles_html
 from .parse import inr
 
 __all__ = ["SEVERITY_LABEL", "llm_summary", "template_summary", "to_html"]
@@ -121,7 +121,7 @@ def llm_summary(result: Result, client: LLMClient) -> tuple[str, bool]:
 
 
 def to_html(result: Result, summary: str, mapping_notes: list[str] | None = None, title: str = "Payout check") -> str:
-    """A standalone report in the same look as the app. Fonts load from Google if online, else fall back."""
+    """A standalone report in the same look as the app. Fonts load from Google if online, else system fonts."""
     s = result.stats
     if s["statement_from"]:
         start, end = date.fromisoformat(s["statement_from"]), date.fromisoformat(s["statement_to"])
@@ -132,18 +132,18 @@ def to_html(result: Result, summary: str, mapping_notes: list[str] | None = None
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-body{{margin:0;background:#F5F2EE;color:#1A1A18;font:16px/1.6 "DM Sans",system-ui,-apple-system,sans-serif}}
-main{{max-width:760px;margin:0 auto;padding:40px 20px 24px}}
+body{{margin:0;background:#fff;color:#15181E;font:16px/1.6 "IBM Plex Sans",system-ui,-apple-system,sans-serif}}
+main{{max-width:780px;margin:0 auto;padding:36px 20px 24px}}
 {CSS}
 </style></head><body><main>
-<div class="rc-top"><span class="rc-brand">Recon Agent</span><span>Report · {escape(period)}</span></div>
-<div class="rc-h1">{escape(title)}.</div>
-<p class="rc-fine">{s["payments"]} payments · ₹{inr(s["gross_collected"])} collected · refunds ₹{inr(s["refunds"])}</p>
+<div class="rc-nav"><span class="rc-brand">{mark_svg()}Recon Agent</span><span class="rc-fine">{escape(period)}</span></div>
+<div class="rc-h1">{escape(title)}</div>
+<p class="rc-sub">{s["payments"]} payments, ₹{inr(s["gross_collected"])} collected, ₹{inr(s["refunds"])} refunded.</p>
 {tiles_html(s)}
 <p class="rc-summary">{escape(summary)}</p>
 {issues_html(result.exceptions)}
 <div style="margin-top:28px">{notes}</div>
-<div class="rc-foot"><span>Recon Agent</span><span>Generated from your exports. Nothing was stored.</span></div>
+<div class="rc-foot"><span>Made with Recon Agent from your own exports.</span><span>Nothing was stored.</span></div>
 </main></body></html>"""

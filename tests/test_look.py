@@ -73,14 +73,15 @@ def test_issue_groups_skip_empty_priorities_and_merge_same_kind():
             issue("gst_mismatch", "low", 1.0, "c"),
         ]
     )
-    assert "Act now · 2" in page and "Good to know · 1" in page and "Worth a check" not in page
-    assert page.count("rc-issue") == 2 and page.count("<li>") == 2 and "× 2" in page
+    assert 'Act now<span class="rc-count">2</span>' in page and 'Good to know<span class="rc-count">1</span>' in page
+    assert "Worth a check" not in page
+    assert page.count('class="rc-card"') == 2 and page.count("<li>") == 2 and "2 cases" in page
     assert page.count("action missing_payout") == 1  # next step shown once per kind, not per case
 
 
 def test_tiles_show_dash_when_nothing_to_match():
     html = tiles_html(result([], payouts=0, matched=0).stats)
-    assert '<div class="rc-v">–</div>' in html and 'class="rc-v red"' not in html
+    assert '<div class="v">–</div>' in html and "rc-stat alert" not in html
 
 
 def test_file_story_partial_balance_and_notes():

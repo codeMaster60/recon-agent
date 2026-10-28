@@ -149,6 +149,6 @@ def test_all_clear_summary_and_html(month):
 def test_html_escapes_text_and_shows_every_issue(month):
     result = _result(month)
     page = to_html(result, "<script>x</script>", title="Sept & Oct")
-    assert "&lt;script&gt;" in page and "Sept &amp; Oct." in page
+    assert "&lt;script&gt;" in page and "Sept &amp; Oct" in page
     assert all(e.key in page for e in result.exceptions)
-    assert page.count('class="rc-group') == 3
+    assert page.count('class="rc-group"') == 3

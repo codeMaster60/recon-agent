@@ -57,7 +57,10 @@ def test_cli_full_run_with_rate_card(monkeypatch, tmp_path, capsys):
     summary = json.loads((tmp_path / "out" / "summary.json").read_text())
     assert summary["stats"]["exceptions"] == 22 and summary["llm_summary"] is False
     report_html = (tmp_path / "out" / "report.html").read_text()
-    assert all(key in report_html for _, key in generate_truth()) and "Act now · 14" in report_html
+    assert (
+        all(key in report_html for _, key in generate_truth())
+        and 'Act now<span class="rc-count">14</span>' in report_html
+    )
     assert len((tmp_path / "out" / "exceptions.csv").read_text().splitlines()) == 23
     assert "wrote" in capsys.readouterr().out
 
@@ -123,23 +126,24 @@ def load_sample(at, bank=None):
     return at
 
 
-HINDI = "Bank D · Hindi column names (needs the AI step)"
+HINDI = "Bank D, column names in Hindi (needs the AI step)"
 
 
 def test_app_landing_page():
     at = app().run()
     html = page(at)
     assert not at.exception
-    assert "Did every payout land?" in html and "Results show up here" in html
-    assert "AI step off in this demo" in html and "How it works" in html
-    assert at.button[0].label == "No files handy? Load a sample month"
+    assert "Did all of it reach your bank?" in html and "Results show up here" in html
+    assert "AI step off in this demo" in html and 'id="how-it-works"' in html
+    assert at.button[0].label == "No files handy? Try a sample month"
 
 
 def test_app_sample_month_shows_every_issue_and_takes_feedback(capsys, month):
     at = load_sample(app().run())
     html = page(at)
     assert not at.exception
-    assert "Needs a look now" in html and "Act now · 14" in html and "Worth a check · 5" in html
+    assert "Needs a look now" in html and 'Act now<span class="rc-count">14</span>' in html
+    assert 'Worth a check<span class="rc-count">5</span>' in html
     truth = {k for _, k in generate_truth()}
     assert all(key in html for key in truth)
     assert "2 payouts that never arrived" in html
@@ -152,16 +156,16 @@ def test_app_sample_month_shows_every_issue_and_takes_feedback(capsys, month):
 def test_app_every_sample_bank_format_reads(month):
     at = app().run()
     at.button[0].click().run()
-    for label in ("Bank B · Excel download", "Bank C · one amount column marked Cr or Dr"):
+    for label in ("Bank B, Excel download", "Bank C, one amount column marked Cr or Dr"):
         at.radio[0].set_value(label).run()
-        assert not at.exception and "Act now · 14" in page(at)
+        assert not at.exception and 'Act now<span class="rc-count">14</span>' in page(at)
 
 
 def test_app_hindi_sample_without_ai_explains_instead_of_erroring():
     at = load_sample(app().run(), HINDI)
     html = page(at)
     assert not at.exception and not at.error
-    assert "read the bank statement." in html and "switched off in this public demo" in html
+    assert "Couldn't read the bank statement" in html and "off in this public demo" in html
     assert "Could not map" in at.code[0].value  # raw detail kept behind "Technical details"
 
 
@@ -183,7 +187,7 @@ def test_app_env_key_wins_over_secrets(llm_server, monkeypatch):
     at = app()
     at.secrets["GROQ_API_KEY"] = "from-secrets"
     at.run()
-    assert "AI step on · fake-model" in page(at) and os.environ["GROQ_API_KEY"] == "from-env"
+    assert "AI step on (fake-model)" in page(at) and os.environ["GROQ_API_KEY"] == "from-env"
 
 
 def test_app_ai_cannot_read_file_either(llm_server):
@@ -220,7 +224,7 @@ def test_app_report_only_upload():
     at.file_uploader[0].set_value(("report.csv", CLEAN_REPORT, "text/csv")).run()
     html = page(at)
     assert not at.exception and "Add the bank statement for the same dates" in html
-    assert '<div class="rc-v">–</div>' in html  # payouts matched: nothing to match yet
+    assert '<div class="v">–</div>' in html  # payouts matched: nothing to match yet
 
 
 # ---------------------------------------------------------------- generator
