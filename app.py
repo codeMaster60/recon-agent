@@ -103,7 +103,7 @@ def load(label: str, loader, file):
 show(f"<style>{CSS}</style>")
 show(
     f'<div class="rc-nav"><span class="rc-brand">{mark_svg()}Recon Agent</span><span>'
-    f'<a href="#how-it-works">How it works</a><a href="{REPO}" target="_blank">GitHub</a></span></div>'
+    '<a href="#how-it-works">How it works</a></span></div>'  # Streamlit Cloud adds its own GitHub icon up top
 )
 show(
     '<div class="rc-h1">Razorpay says it paid you. Did all of it reach your bank?</div>'
